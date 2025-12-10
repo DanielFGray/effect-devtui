@@ -1,0 +1,65 @@
+#!/usr/bin/env node
+
+// Installer script for effect-devtools
+// Downloads the appropriate binary for the current platform
+
+import { createRequire } from "module";
+import { platform, arch } from "os";
+import { existsSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const require = createRequire(import.meta.url);
+const pkg = require("../package.json");
+
+// Map platform/arch to binary names
+const PLATFORMS = {
+  darwin: {
+    x64: "effect-devtools-darwin-x64",
+    arm64: "effect-devtools-darwin-arm64",
+  },
+  linux: {
+    x64: "effect-devtools-linux-x64",
+    arm64: "effect-devtools-linux-arm64",
+  },
+  win32: {
+    x64: "effect-devtools-windows-x64.exe",
+  },
+};
+
+const currentPlatform = platform();
+const currentArch = arch();
+
+const binaryName = PLATFORMS[currentPlatform]?.[currentArch];
+
+if (!binaryName) {
+  console.error(
+    `Unsupported platform: ${currentPlatform} ${currentArch}`
+  );
+  console.error("Supported platforms:");
+  console.error(JSON.stringify(PLATFORMS, null, 2));
+  process.exit(1);
+}
+
+const binaryPath = join(__dirname, "..", "dist", binaryName.replace(".exe", ""), binaryName);
+
+if (!existsSync(binaryPath)) {
+  console.error(`Binary not found: ${binaryPath}`);
+  console.error("Please report this issue at:");
+  console.error(pkg.bugs.url);
+  process.exit(1);
+}
+
+// Re-export the binary
+import { spawn } from "child_process";
+
+const child = spawn(binaryPath, process.argv.slice(2), {
+  stdio: "inherit",
+});
+
+child.on("exit", (code) => {
+  process.exit(code || 0);
+});
