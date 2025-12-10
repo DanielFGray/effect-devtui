@@ -4,30 +4,7 @@ A terminal user interface (TUI) for Effect DevTools. View traces, spans, metrics
 
 Built with [OpenTUI](https://github.com/opentui/opentui) and inspired by the [Effect DevTools VS Code extension](../vscode-extension/), but with a more limited feature set focused on observability rather than debugging.
 
-## Installation
-
-### Via npm (recommended)
-
-```bash
-npm install -g @danielfgray/effect-devtui
-effect-devtools
-```
-
-### Via Direct Binary Download
-
-Download the binary for your platform from the [releases page](https://github.com/DanielFGray/effect-tui/releases):
-
-```bash
-# Linux x64
-wget https://github.com/DanielFGray/effect-tui/releases/latest/download/effect-devtools-linux-x64
-chmod +x effect-devtools-linux-x64
-./effect-devtools-linux-x64
-
-# macOS (Apple Silicon)
-wget https://github.com/DanielFGray/effect-tui/releases/latest/download/effect-devtools-darwin-arm64
-chmod +x effect-devtools-darwin-arm64
-./effect-devtools-darwin-arm64
-```
+<img width="1056" height="864" alt="20251210" src="https://github.com/user-attachments/assets/acc54df6-77fa-4b5c-b189-6ccba2e0bd14" />
 
 ## Features
 
@@ -100,7 +77,7 @@ If you're using `@effect/opentelemetry`, provide the `DevTools` layer **before**
 
 This TUI is a lightweight alternative focused on **observability**, not a full replacement for the VS Code extension.
 
-### What's Implemented
+### Features
 
 - ✅ View Spans/Traces
 - ✅ Span Tree Navigation
@@ -108,30 +85,7 @@ This TUI is a lightweight alternative focused on **observability**, not a full r
 - ✅ Metrics Viewing
 - ✅ Multi-Client Support
 
-### What's NOT Implemented ❌
-
-The TUI does **not** support these VS Code extension features:
-
-| Feature                                | Why Not Available                            |
-| -------------------------------------- | -------------------------------------------- |
-| **DAP (Debug Adapter Protocol)**       |                                              |
-| Fiber Debugging                        | Requires VS Code DAP integration             |
-| Breakpoints on Defects                 | Requires VS Code DAP integration             |
-| Pause/Resume Fibers                    | Requires VS Code DAP integration             |
-| Thread Stopped/Continued Events        | Requires VS Code DAP integration             |
-| Context Inspection (during debugging)  | Requires VS Code DAP integration             |
-| Stack Frame Navigation                 | Requires VS Code DAP integration             |
-| Variable Inspection                    | Requires VS Code DAP integration             |
-| **IDE Integration**                    |                                              |
-| Layer Hover Provider                   | Requires VS Code Language Server integration |
-| Layer Mermaid Diagrams                 | Requires VS Code webview + Mermaid extension |
-| Code Navigation (Go to Definition)     | Terminal limitation                          |
-| Interactive Webview Tracer             | Requires VS Code webview + React UI          |
-| File Reveal/Navigation                 | Terminal limitation (no clickable links)     |
-| **Advanced Features**                  |                                              |
-| Node.js Instrumentation Injection      | Requires VS Code launch configuration        |
-| TypeScript Language Server Integration | VS Code specific                             |
-
+None of the
 
 ## Related Projects
 
