@@ -1,55 +1,25 @@
 #!/usr/bin/env node
 import { render, useKeyboard, useRenderer } from "@opentui/solid";
-import { Show, Switch, Match, For, createMemo } from "solid-js";
+import { Show, createMemo } from "solid-js";
 import * as Option from "effect/Option";
 import { PORT } from "./runtime";
-import { StoreProvider, useStore, type TabId } from "./store";
+import { StoreProvider, useStore, type FocusedSection } from "./store";
 import { SpanTreeView, SpanDetailsPanel } from "./spanTree";
 import { MetricsView, MetricDetailsPanel } from "./metricsView";
-import { ClientsView } from "./clientsView";
+import { ClientDropdown } from "./clientDropdown";
 
 /**
- * Effect DevTools TUI - Using Solid.js createStore with Context Provider
+ * Effect DevTools TUI - Stacked Single-View Layout
  *
  * Key features:
- * - Tab-based navigation (Clients, Tracer, Metrics)
- * - Vim-style keyboard navigation (j/k, Enter, Tab)
+ * - Single vertical stack of all content (no tabs)
+ * - Tab key cycles between focusable sections: clients → spans → metrics
+ * - j/k or arrow keys navigate within focused section
  * - Real-time span and metrics display
  *
  * The Effect runtime is started inside StoreProvider.onMount to ensure
  * there's only one store instance shared between the runtime and UI.
  */
-
-/**
- * Tab bar component
- */
-function TabBar(props: {
-  activeTab: TabId;
-  onTabChange: (tab: TabId) => void;
-}) {
-  const tabs: { id: TabId; label: string; key: string }[] = [
-    { id: "clients", label: "Clients", key: "1" },
-    { id: "tracer", label: "Tracer", key: "2" },
-    { id: "metrics", label: "Metrics", key: "3" },
-  ];
-
-  return (
-    <box height={1} width="100%" flexDirection="row" backgroundColor="#24283b">
-      {tabs.map((tab) => (
-        <text
-          style={{
-            fg: props.activeTab === tab.id ? "#7aa2f7" : "#565f89",
-            bold: props.activeTab === tab.id,
-          }}
-          paddingLeft={1}
-          paddingRight={2}
-        >
-          {`[${tab.key}] ${tab.label}`}
-        </text>
-      ))}
-    </box>
-  );
-}
 
 /**
  * Help overlay component
@@ -62,55 +32,33 @@ function HelpOverlay() {
       width="100%"
       backgroundColor="#1a1b26"
     >
-      <text style={{ fg: "#7aa2f7", bold: true }} marginBottom={1}>
+      <text style={{ fg: "#7aa2f7" }} marginBottom={1}>
         Effect DevTools - Keyboard Shortcuts
       </text>
       <text style={{ fg: "#c0caf5" }}>
         {`Navigation:
-  [1] [2] [3]  - Switch tabs (Clients/Tracer/Metrics)
-  [j] or [↓]   - Move down / Select next client or item
-  [k] or [↑]   - Move up / Select previous client or item
-  [Enter]      - Expand/collapse span
-  [Tab]        - Switch between main and details pane
+  [Tab]        - Cycle focus: Clients → Spans → Metrics
+  [j] or [↓]   - Navigate down in focused section
+  [k] or [↑]   - Navigate up in focused section
+  [Enter]      - Expand/collapse span (when Spans focused)
 
-Clients Tab:
-  [j] [k]      - Navigate and select clients
-  Selected client's data shown in Tracer and Metrics tabs
+Clients Section:
+  Navigate to select active client (filters spans and metrics)
+
+  Spans Section:
+    Navigate to select span, press Enter to expand/collapse children
+    Selected span details shown in right panel
+
+Metrics Section:
+  Navigate to select metric, details shown inline below
 
 General:
   [?] or [h]   - Toggle this help
-  [c]          - Clear spans/metrics
+  [c]          - Clear spans or metrics (depending on focused section)
   [q]          - Quit application
-  [Ctrl+C]     - Exit
+  [Ctrl+C]     - Force exit
 
 Press any key to close...`}
-      </text>
-    </box>
-  );
-}
-
-/**
- * Waiting for connections view
- */
-function WaitingView(props: { clientCount: number; spanCount: number }) {
-  return (
-    <box flexDirection="column" padding={2} width="100%">
-      <text style={{ fg: "#7aa2f7", bold: true }} marginBottom={1}>
-        Effect DevTools TUI
-      </text>
-      <text style={{ fg: "#c0caf5" }}>
-        {`WebSocket Server: Running on port ${PORT}
-
-Clients: ${props.clientCount} | Spans: ${props.spanCount}
-
-Waiting for Effect applications to connect...
-
-To connect your Effect app, add:
-  import { DevTools } from "@effect/experimental"
-  pipe(Effect.runPromise, DevTools.layer())
-
-Press [?] or [h] for keyboard shortcuts.
-Press [q] to quit.`}
       </text>
     </box>
   );
@@ -145,17 +93,12 @@ function AppContent() {
       return;
     }
 
-    // Tab switching with number keys
-    if (key.name === "1") {
-      actions.setActiveTab("clients");
-      return;
-    }
-    if (key.name === "2") {
-      actions.setActiveTab("tracer");
-      return;
-    }
-    if (key.name === "3") {
-      actions.setActiveTab("metrics");
+    // Section cycling with Tab
+    if (key.name === "tab") {
+      const sections: FocusedSection[] = ["clients", "spans", "metrics"];
+      const currentIdx = sections.indexOf(store.ui.focusedSection);
+      const nextIdx = (currentIdx + 1) % sections.length;
+      actions.setFocusedSection(sections[nextIdx]);
       return;
     }
 
@@ -169,25 +112,17 @@ function AppContent() {
       return;
     }
 
-    // Expand/collapse
+    // Expand/collapse (only works in spans section)
     if (key.name === "return" || key.name === "enter" || key.name === "e") {
       actions.toggleExpand();
       return;
     }
 
-    // Pane switching
-    if (key.name === "tab") {
-      actions.setFocusedPane(
-        store.ui.focusedPane === "main" ? "details" : "main",
-      );
-      return;
-    }
-
     // Clear data
     if (key.name === "c" && !key.ctrl) {
-      if (store.ui.activeTab === "tracer") {
+      if (store.ui.focusedSection === "spans") {
         actions.clearSpans();
-      } else if (store.ui.activeTab === "metrics") {
+      } else if (store.ui.focusedSection === "metrics") {
         actions.clearMetrics();
       }
       return;
@@ -209,6 +144,11 @@ function AppContent() {
   const spanCount = createMemo(() => store.spans.length);
   const metricCount = createMemo(() => store.metrics.length);
 
+  // Helper to show section focus indicator
+  const getSectionHeaderColor = (section: FocusedSection) => {
+    return store.ui.focusedSection === section ? "#7aa2f7" : "#565f89";
+  };
+
   return (
     <>
       {/* Header */}
@@ -219,146 +159,165 @@ function AppContent() {
         paddingLeft={1}
         paddingRight={1}
       >
-        <text style={{ fg: "#7aa2f7", bold: true }}>Effect DevTools TUI</text>
+        <text style={{ fg: "#7aa2f7" }}>Effect DevTools TUI</text>
       </box>
 
-      {/* Tab Bar */}
-      <TabBar
-        activeTab={store.ui.activeTab}
-        onTabChange={actions.setActiveTab}
-      />
-
-      {/* Main Content */}
-      <box flexGrow={1} flexDirection="row" backgroundColor="#1a1b26">
+      {/* Main Content - Stacked Vertical Layout */}
+      <box flexGrow={1} flexDirection="column" backgroundColor="#1a1b26">
         <Show when={store.ui.showHelp}>
           <HelpOverlay />
         </Show>
 
         <Show when={!store.ui.showHelp}>
-          <Switch>
-            {/* Clients Tab */}
-            <Match when={store.ui.activeTab === "clients"}>
-              <ClientsView
+          {/* Clients Section - Compact dropdown */}
+          <box
+            flexDirection="column"
+            padding={1}
+            paddingBottom={0}
+            height="auto"
+          >
+            <text
+              style={{ fg: getSectionHeaderColor("clients") }}
+              marginBottom={1}
+            >
+              {`Clients (${clientCount()})`}
+            </text>
+            <box paddingLeft={1}>
+              <ClientDropdown
                 clients={store.clients}
                 serverStatus={store.serverStatus}
                 selectedClientIndex={store.ui.selectedClientIndex}
+                isExpanded={store.ui.focusedSection === "clients"}
+                onToggleExpanded={actions.toggleClientsExpanded}
               />
-            </Match>
+            </box>
+          </box>
 
-            {/* Tracer Tab */}
-            <Match when={store.ui.activeTab === "tracer"}>
-              <box flexDirection="row" width="100%" flexGrow={1} padding={1}>
-                {/* Span tree */}
-                <box
-                  flexDirection="column"
-                  flexGrow={1}
-                  width="70%"
-                  borderColor={
-                    store.ui.focusedPane === "main" ? "#7aa2f7" : "#565f89"
-                  }
-                  borderStyle="rounded"
-                  marginRight={1}
-                >
-                  <text style={{ fg: "#7aa2f7" }} padding={[0, 1]}>
-                    {`Spans (${spanCount()}) - Active: ${store.activeClient
-                      .pipe(Option.map((c) => c.name))
-                      .pipe(Option.getOrElse(() => "None"))}`}
-                  </text>
-                  <box flexDirection="column" flexGrow={1} overflow="scroll">
-                    <SpanTreeView
-                      spans={store.spans}
-                      selectedSpanId={store.ui.selectedSpanId}
-                      expandedSpanIds={store.ui.expandedSpanIds}
-                    />
-                  </box>
-                </box>
+          {/* Separator */}
+          <box height={1} border={["bottom"]} borderColor="#30363D" />
 
-                {/* Details panel */}
-                <box
-                  flexDirection="column"
-                  width="30%"
-                  borderColor={
-                    store.ui.focusedPane === "details" ? "#7aa2f7" : "#565f89"
-                  }
-                  borderStyle="rounded"
-                >
-                  <text style={{ fg: "#7aa2f7" }} padding={[0, 1]}>
-                    Details
-                  </text>
-                  <box
-                    flexDirection="column"
-                    flexGrow={1}
-                    overflow="scroll"
-                    padding={1}
-                  >
-                    <SpanDetailsPanel
-                      spans={store.spans}
-                      spanId={store.ui.selectedSpanId}
-                    />
-                  </box>
-                </box>
+          {/* Spans Section - Largest section with side-by-side layout */}
+          <box
+            flexDirection="column"
+            padding={1}
+            paddingBottom={0}
+            flexGrow={2}
+          >
+            <text
+              style={{ fg: getSectionHeaderColor("spans") }}
+              marginBottom={1}
+            >
+              {`Spans (${spanCount()}) - Active: ${store.activeClient
+                .pipe(Option.map((c) => c.name))
+                .pipe(Option.getOrElse(() => "None"))}`}
+            </text>
+
+            {/* Side-by-side: Span list and details */}
+            <box flexDirection="row" flexGrow={1}>
+              {/* Span list - left side */}
+              <box
+                flexDirection="column"
+                width="60%"
+                overflow="scroll"
+                marginRight={1}
+              >
+                <SpanTreeView
+                  spans={store.spans}
+                  selectedSpanId={store.ui.selectedSpanId}
+                  expandedSpanIds={store.ui.expandedSpanIds}
+                />
               </box>
-            </Match>
 
-            {/* Metrics Tab */}
-            <Match when={store.ui.activeTab === "metrics"}>
-              <box flexDirection="row" width="100%" flexGrow={1} padding={1}>
-                {/* Metrics list */}
-                <box
-                  flexDirection="column"
-                  flexGrow={1}
-                  width="60%"
-                  borderColor={
-                    store.ui.focusedPane === "main" ? "#7aa2f7" : "#565f89"
+              {/* Span Details - right side */}
+              <box
+                flexDirection="column"
+                width="40%"
+                overflow="scroll"
+                paddingLeft={1}
+                border={["left"]}
+                borderColor="#30363D"
+              >
+                <Show
+                  when={store.ui.selectedSpanId !== null}
+                  fallback={
+                    <text style={{ fg: "#565f89" }}>
+                      {`Select a span with j/k\nPress Enter to expand`}
+                    </text>
                   }
-                  borderStyle="rounded"
-                  marginRight={1}
                 >
-                  <text style={{ fg: "#7aa2f7" }} padding={[0, 1]}>
-                    {`Metrics (${metricCount()})`}
-                  </text>
-                  <box flexDirection="column" flexGrow={1} overflow="scroll">
-                    <MetricsView
-                      metrics={store.metrics}
-                      selectedMetricName={store.ui.selectedMetricName}
-                    />
-                  </box>
-                </box>
-
-                {/* Metric details panel */}
-                <box
-                  flexDirection="column"
-                  width="40%"
-                  borderColor={
-                    store.ui.focusedPane === "details" ? "#7aa2f7" : "#565f89"
-                  }
-                  borderStyle="rounded"
-                >
-                  <text style={{ fg: "#7aa2f7" }} padding={[0, 1]}>
-                    Metric Details
-                  </text>
-                  <box
-                    flexDirection="column"
-                    flexGrow={1}
-                    overflow="scroll"
-                    padding={1}
-                  >
-                    <MetricDetailsPanel
-                      metrics={store.metrics}
-                      metricName={store.ui.selectedMetricName}
-                    />
-                  </box>
-                </box>
+                  <SpanDetailsPanel
+                    spans={store.spans}
+                    spanId={store.ui.selectedSpanId}
+                  />
+                </Show>
               </box>
-            </Match>
-          </Switch>
+            </box>
+          </box>
+
+          {/* Separator */}
+          <box height={1} border={["bottom"]} borderColor="#30363D" />
+
+          {/* Metrics Section */}
+          <box
+            flexDirection="column"
+            padding={1}
+            paddingBottom={0}
+            height="20%"
+          >
+            <text
+              style={{ fg: getSectionHeaderColor("metrics") }}
+              marginBottom={1}
+            >
+              {`Metrics (${metricCount()})`}
+            </text>
+
+            {/* Side-by-side: Metrics list and details */}
+            <box flexDirection="row" flexGrow={1}>
+              {/* Metrics list - left side */}
+              <box
+                flexDirection="column"
+                width="60%"
+                overflow="scroll"
+                marginRight={1}
+              >
+                <MetricsView
+                  metrics={store.metrics}
+                  selectedMetricName={store.ui.selectedMetricName}
+                />
+              </box>
+
+              {/* Metric Details - right side */}
+              <box
+                flexDirection="column"
+                width="40%"
+                overflow="scroll"
+                paddingLeft={1}
+                border={["left"]}
+                borderColor="#30363D"
+              >
+                <Show
+                  when={store.ui.selectedMetricName !== null}
+                  fallback={
+                    <text style={{ fg: "#565f89" }}>
+                      {`Select a metric\nwith j/k`}
+                    </text>
+                  }
+                >
+                  <MetricDetailsPanel
+                    metrics={store.metrics}
+                    metricName={store.ui.selectedMetricName}
+                  />
+                </Show>
+              </box>
+            </box>
+          </box>
         </Show>
       </box>
 
       {/* Footer/Status Bar */}
       <box height={1} width="100%" backgroundColor="#414868" paddingLeft={1}>
         <text style={{ fg: "#c0caf5" }}>
-          {`${statusText()} | Port: ${PORT} | Clients: ${clientCount()} | Spans: ${spanCount()} | Metrics: ${metricCount()} | Tick: ${store.debugCounter} | [?] Help | [q] Quit`}
+          {`${statusText()} | Port: ${PORT} | Clients: ${clientCount()} | Spans: ${spanCount()} | Metrics: ${metricCount()} | [Tab] Focus | [?] Help | [q] Quit`}
         </text>
       </box>
     </>

@@ -31,7 +31,7 @@ const log = (msg: string) => {
 // Types
 // =============================================================================
 
-export type TabId = "clients" | "tracer" | "metrics";
+export type FocusedSection = "clients" | "spans" | "metrics";
 
 export interface SimpleSpanEvent {
   name: string;
@@ -60,7 +60,7 @@ export interface SimpleMetric {
 }
 
 export interface UIState {
-  activeTab: TabId;
+  focusedSection: FocusedSection;
   showHelp: boolean;
   selectedSpanId: string | null;
   selectedTraceId: string | null; // For selecting trace groups
@@ -68,7 +68,7 @@ export interface UIState {
   selectedClientIndex: number; // Index into clients array
   expandedSpanIds: Set<string>;
   expandedTraceIds: Set<string>; // For trace grouping
-  focusedPane: "main" | "details";
+  clientsExpanded: boolean; // For client dropdown
 }
 
 export interface StoreState {
@@ -104,9 +104,9 @@ export interface StoreActions {
   selectClientByIndex: (index: number) => void;
 
   // UI actions
-  setActiveTab: (tab: TabId) => void;
+  setFocusedSection: (section: FocusedSection) => void;
   toggleHelp: () => void;
-  setFocusedPane: (pane: "main" | "details") => void;
+  toggleClientsExpanded: () => void;
   navigateUp: () => void;
   navigateDown: () => void;
   toggleExpand: () => void;
@@ -255,7 +255,7 @@ export function StoreProvider(props: ParentProps) {
     activeClient: Option.none(),
     serverStatus: "starting",
     ui: {
-      activeTab: "tracer" as const,
+      focusedSection: "spans" as const,
       showHelp: false,
       selectedSpanId: null,
       selectedTraceId: null,
@@ -263,7 +263,7 @@ export function StoreProvider(props: ParentProps) {
       selectedClientIndex: 0,
       expandedSpanIds: new Set(),
       expandedTraceIds: new Set(),
-      focusedPane: "main" as const,
+      clientsExpanded: false,
     },
     debugCounter: 0,
   });
@@ -526,27 +526,27 @@ export function StoreProvider(props: ParentProps) {
       }
     },
 
-    setActiveTab: (tab: TabId) => {
-      setStore("ui", "activeTab", tab);
+    setFocusedSection: (section: FocusedSection) => {
+      setStore("ui", "focusedSection", section);
     },
 
     toggleHelp: () => {
       setStore("ui", "showHelp", (prev) => !prev);
     },
 
-    setFocusedPane: (pane: "main" | "details") => {
-      setStore("ui", "focusedPane", pane);
+    toggleClientsExpanded: () => {
+      setStore("ui", "clientsExpanded", (prev) => !prev);
     },
 
     navigateUp: () => {
-      if (store.ui.activeTab === "clients") {
+      if (store.ui.focusedSection === "clients") {
         const clients = store.clients;
         if (clients.length === 0) return;
 
         const currentIdx = store.ui.selectedClientIndex;
         const newIdx = currentIdx <= 0 ? clients.length - 1 : currentIdx - 1;
         actions.selectClientByIndex(newIdx);
-      } else if (store.ui.activeTab === "tracer") {
+      } else if (store.ui.focusedSection === "spans") {
         const visibleItems = getVisibleItems();
         if (visibleItems.length === 0) return;
 
@@ -566,7 +566,7 @@ export function StoreProvider(props: ParentProps) {
 
         setStore("ui", "selectedSpanId", newItem.span.spanId);
         setStore("ui", "selectedTraceId", null);
-      } else if (store.ui.activeTab === "metrics") {
+      } else if (store.ui.focusedSection === "metrics") {
         const metrics = store.metrics;
         if (metrics.length === 0) return;
 
@@ -584,14 +584,14 @@ export function StoreProvider(props: ParentProps) {
       log(
         `navigateDown: ENTRY - store.spans.length=${store.spans.length}, store object id=${typeof store}`,
       );
-      if (store.ui.activeTab === "clients") {
+      if (store.ui.focusedSection === "clients") {
         const clients = store.clients;
         if (clients.length === 0) return;
 
         const currentIdx = store.ui.selectedClientIndex;
         const newIdx = currentIdx >= clients.length - 1 ? 0 : currentIdx + 1;
         actions.selectClientByIndex(newIdx);
-      } else if (store.ui.activeTab === "tracer") {
+      } else if (store.ui.focusedSection === "spans") {
         const visibleItems = getVisibleItems();
         log(
           `navigateDown: ${visibleItems.length} visible items, expandedIds=${Array.from(
@@ -622,7 +622,7 @@ export function StoreProvider(props: ParentProps) {
 
         setStore("ui", "selectedSpanId", newItem.span.spanId);
         setStore("ui", "selectedTraceId", null);
-      } else if (store.ui.activeTab === "metrics") {
+      } else if (store.ui.focusedSection === "metrics") {
         const metrics = store.metrics;
         if (metrics.length === 0) return;
 
@@ -637,7 +637,7 @@ export function StoreProvider(props: ParentProps) {
     },
 
     toggleExpand: () => {
-      if (store.ui.activeTab === "tracer") {
+      if (store.ui.focusedSection === "spans") {
         // Check if a span is selected
         const selectedSpanId = store.ui.selectedSpanId;
         if (selectedSpanId) {

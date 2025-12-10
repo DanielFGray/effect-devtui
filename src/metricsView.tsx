@@ -68,10 +68,7 @@ export function MetricsView(props: {
   selectedMetricName: string | null;
 }) {
   return (
-    <box flexDirection="column" width="100%" padding={1}>
-      <text style={{ fg: "#7aa2f7" }}>
-        Total metrics: {props.metrics.length}
-      </text>
+    <box flexDirection="column" width="100%">
       <For each={props.metrics}>
         {(metric) => {
           const isSelected = () =>

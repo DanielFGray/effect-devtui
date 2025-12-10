@@ -102,6 +102,7 @@ When encountering Bun segmentation faults (panic with address 0x10):
 The recommended setup uses **two tmux windows**: one for the TUI server, one for the test client.
 
 **IMPORTANT: Never kill tmux session 0 - that's where OpenCode runs!**
+**CRITICAL: NEVER use `tmux kill-server` - this kills ALL tmux sessions including OpenCode!**
 
 ```bash
 # Clean up any existing processes first
