@@ -47,25 +47,13 @@ jobs:
           body: |
             ## Effect DevTools Terminal UI
             
-            Download the binary for your platform below.
-            
-            ### Installation via npm
+            ### Installation
             ```bash
-            npm install -g @danielfgray/effect-devtui
+            npm install -g effect-devtui
             effect-devtools
-            ```
             
-            ### Direct Binary Download
-            ```bash
-            # Linux x64
-            wget https://github.com/${{ github.repository }}/releases/download/v${{ steps.package-version.outputs.version }}/effect-devtools-linux-x64
-            chmod +x effect-devtools-linux-x64
-            ./effect-devtools-linux-x64
-            
-            # macOS (Intel)
-            wget https://github.com/${{ github.repository }}/releases/download/v${{ steps.package-version.outputs.version }}/effect-devtools-darwin-x64
-            chmod +x effect-devtools-darwin-x64
-            ./effect-devtools-darwin-x64
+            # Or run directly with bunx
+            bunx effect-devtui
             ```
             
             Built from commit ${{ github.sha }}

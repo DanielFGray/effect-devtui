@@ -6,6 +6,17 @@ Built with [OpenTUI](https://github.com/opentui/opentui) and inspired by the [Ef
 
 <img width="1056" height="864" alt="20251210" src="https://github.com/user-attachments/assets/acc54df6-77fa-4b5c-b189-6ccba2e0bd14" />
 
+## Installation
+
+```bash
+# Install globally
+npm install -g effect-devtui
+effect-devtools
+
+# Or run directly with bunx
+bunx effect-devtui
+```
+
 ## Features
 
 - 🔍 **Real-time Span Viewer** - View and navigate span traces with expandable tree structure
