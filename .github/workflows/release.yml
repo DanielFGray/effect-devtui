@@ -7,6 +7,8 @@ on:
       - 'src/**'
       - 'package.json'
       - 'build.ts'
+      - 'bun.lock'
+  workflow_dispatch:
 
 permissions:
   contents: write
