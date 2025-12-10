@@ -4,7 +4,6 @@
  */
 
 import { For, Show, createMemo } from "solid-js";
-import * as Option from "effect/Option";
 
 import { getSpanDurationMs } from "./atoms";
 import type { SimpleSpan } from "./store";
@@ -172,7 +171,7 @@ function formatIdDisplay(id: string, maxLength: number = 16): string {
  */
 export function SpanTreeView(props: {
   spans: ReadonlyArray<SimpleSpan>;
-  selectedSpanId: Option.Option<string>;
+  selectedSpanId: string | null;
   expandedSpanIds: Set<string>;
 }) {
   // Memoize tree - will re-run whenever spans or expandedSpanIds change
@@ -192,8 +191,8 @@ export function SpanTreeView(props: {
             if (!node.span) return null;
 
             const isSelected = () =>
-              Option.isSome(props.selectedSpanId) &&
-              Option.getOrNull(props.selectedSpanId) === node.span!.spanId;
+              props.selectedSpanId !== null &&
+              props.selectedSpanId === node.span!.spanId;
 
             const statusColor = () =>
               node.span!.status === "running" ? "#e0af68" : "#9ece6a";
@@ -223,19 +222,17 @@ export function SpanTreeView(props: {
  */
 export function SpanDetailsPanel(props: {
   spans: ReadonlyArray<SimpleSpan>;
-  spanId: Option.Option<string>;
+  spanId: string | null;
 }) {
   const selectedSpan = createMemo(() => {
-    if (Option.isNone(props.spanId)) return Option.none();
-    const found = props.spans.find(
-      (s) => s.spanId === Option.getOrNull(props.spanId),
-    );
-    return found ? Option.some(found) : Option.none();
+    if (props.spanId === null) return null;
+    const found = props.spans.find((s) => s.spanId === props.spanId);
+    return found || null;
   });
 
   return (
     <Show
-      when={Option.isSome(selectedSpan())}
+      when={selectedSpan() !== null}
       fallback={
         <text style={{ fg: "#565f89" }}>
           {`Select a span with j/k\nPress Enter to expand`}
@@ -243,7 +240,7 @@ export function SpanDetailsPanel(props: {
       }
     >
       {(() => {
-        const span = Option.getOrThrow(selectedSpan());
+        const span = selectedSpan()!;
         const durationMs = getSpanDurationMs(span);
         const eventCount = span.events?.length || 0;
         const attrCount = Object.keys(span.attributes).length;

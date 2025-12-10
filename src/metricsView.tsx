@@ -4,7 +4,6 @@
  */
 
 import { For, Show, createMemo } from "solid-js";
-import * as Option from "effect/Option";
 
 import type { SimpleMetric } from "./store";
 
@@ -66,7 +65,7 @@ function getMetricColor(type: SimpleMetric["type"]): string {
  */
 export function MetricsView(props: {
   metrics: ReadonlyArray<SimpleMetric>;
-  selectedMetricName: Option.Option<string>;
+  selectedMetricName: string | null;
 }) {
   return (
     <box flexDirection="column" width="100%" padding={1}>
@@ -76,8 +75,8 @@ export function MetricsView(props: {
       <For each={props.metrics}>
         {(metric) => {
           const isSelected = () =>
-            Option.isSome(props.selectedMetricName) &&
-            Option.getOrNull(props.selectedMetricName) === metric.name;
+            props.selectedMetricName !== null &&
+            props.selectedMetricName === metric.name;
 
           const color = () =>
             isSelected() ? "#1a1b26" : getMetricColor(metric.type);
@@ -99,25 +98,23 @@ export function MetricsView(props: {
  */
 export function MetricDetailsPanel(props: {
   metrics: ReadonlyArray<SimpleMetric>;
-  metricName: Option.Option<string>;
+  metricName: string | null;
 }) {
   const selectedMetric = createMemo(() => {
-    if (Option.isNone(props.metricName)) return Option.none();
-    const found = props.metrics.find(
-      (m) => m.name === Option.getOrNull(props.metricName),
-    );
-    return found ? Option.some(found) : Option.none();
+    if (props.metricName === null) return null;
+    const found = props.metrics.find((m) => m.name === props.metricName);
+    return found || null;
   });
 
   return (
     <Show
-      when={Option.isSome(selectedMetric())}
+      when={selectedMetric() !== null}
       fallback={
         <text style={{ fg: "#565f89" }}>Select a metric to view details</text>
       }
     >
       {(() => {
-        const metric = Option.getOrThrow(selectedMetric());
+        const metric = selectedMetric()!;
 
         return (
           <box flexDirection="column" width="100%">

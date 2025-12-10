@@ -122,12 +122,6 @@ function AppContent() {
 
   // Setup keyboard handlers
   useKeyboard((key) => {
-    const fs = require("fs");
-    fs.appendFileSync(
-      "/tmp/effect-tui.log",
-      `${new Date().toISOString()} - Keyboard: key.name="${key.name}", key.raw="${key.raw}"\n`,
-    );
-
     // Quit handlers
     if (key.name === "q" && !key.ctrl) {
       renderer.stop();
@@ -212,17 +206,7 @@ function AppContent() {
   };
 
   const clientCount = createMemo(() => store.clients.length);
-  const spanCount = createMemo(() => {
-    const count = store.spans.length;
-    if (count !== 0) {
-      const fs = require("fs");
-      fs.appendFileSync(
-        "/tmp/effect-tui.log",
-        `${new Date().toISOString()} - UI: spanCount()=${count} NON-ZERO!\\n`,
-      );
-    }
-    return count;
-  });
+  const spanCount = createMemo(() => store.spans.length);
   const metricCount = createMemo(() => store.metrics.length);
 
   return (
