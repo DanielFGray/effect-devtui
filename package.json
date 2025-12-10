@@ -21,6 +21,7 @@
   "scripts": {
     "dev": "bun --watch --conditions=browser src/index.tsx",
     "build": "./build.ts",
+    "build:npm": "./build-npm.ts",
     "build:single": "./build.ts --single",
     "start": "bun --conditions=browser src/index.tsx"
   },
