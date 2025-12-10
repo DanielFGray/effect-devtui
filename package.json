@@ -1,0 +1,43 @@
+{
+  "name": "@effect/dev-tui",
+  "version": "0.1.0",
+  "description": "Terminal UI for Effect DevTools",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "effect-devtools": "./dist/index.js"
+  },
+  "overrides": {
+    "solid-js": "file:../../opentui-source/node_modules/solid-js"
+  },
+  "scripts": {
+    "dev": "bun --watch src/index.tsx",
+    "dev:node": "node --import tsx src/index.tsx",
+    "build": "bun build src/index.tsx --outdir dist --target node --minify --sourcemap=external",
+    "build:bun": "bun build src/index.tsx --outdir dist --target bun",
+    "start": "node dist/index.js",
+    "start:bun": "bun dist/index.js"
+  },
+  "dependencies": {
+    "@effect-atom/atom": "^0.4.8",
+    "@effect-atom/atom-react": "^0.4.3",
+    "@effect/experimental": "^0.57.11",
+    "@effect/platform": "^0.93.6",
+    "@effect/platform-node": "^0.103.0",
+    "@opentui/core": "^0.1.59",
+    "@opentui/react": "^0.1.59",
+    "@opentui/solid": "^0.1.59",
+    "effect": "^3.19.10",
+    "react": "^19.0.0",
+    "solid-js": "^1.9.10",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "~24.1.0",
+    "@types/react": "^19.0.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.3"
+  }
+}
