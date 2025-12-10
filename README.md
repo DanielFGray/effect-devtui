@@ -85,8 +85,6 @@ This TUI is a lightweight alternative focused on **observability**, not a full r
 - ✅ Metrics Viewing
 - ✅ Multi-Client Support
 
-None of the
-
 ## Related Projects
 
 - [Effect](https://effect.website/) - The Effect TypeScript framework
