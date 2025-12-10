@@ -4,6 +4,31 @@ A terminal user interface (TUI) for Effect DevTools. View traces, spans, metrics
 
 Built with [OpenTUI](https://github.com/opentui/opentui) and inspired by the [Effect DevTools VS Code extension](../vscode-extension/), but with a more limited feature set focused on observability rather than debugging.
 
+## Installation
+
+### Via npm (recommended)
+
+```bash
+npm install -g @danielfgray/effect-devtui
+effect-devtools
+```
+
+### Via Direct Binary Download
+
+Download the binary for your platform from the [releases page](https://github.com/DanielFGray/effect-tui/releases):
+
+```bash
+# Linux x64
+wget https://github.com/DanielFGray/effect-tui/releases/latest/download/effect-devtools-linux-x64
+chmod +x effect-devtools-linux-x64
+./effect-devtools-linux-x64
+
+# macOS (Apple Silicon)
+wget https://github.com/DanielFGray/effect-tui/releases/latest/download/effect-devtools-darwin-arm64
+chmod +x effect-devtools-darwin-arm64
+./effect-devtools-darwin-arm64
+```
+
 ## Features
 
 - 🔍 **Real-time Span Viewer** - View and navigate span traces with expandable tree structure

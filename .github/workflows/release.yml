@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'build.ts'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build all platforms
+        run: bun run build
+
+      - name: Get version from package.json
+        id: package-version
+        run: echo "version=$(cat package.json | jq -r '.version')" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.package-version.outputs.version }}
+          name: Effect DevTools TUI v${{ steps.package-version.outputs.version }}
+          body: |
+            ## Effect DevTools Terminal UI
+            
+            Download the binary for your platform below.
+            
+            ### Installation via npm
+            ```bash
+            npm install -g @danielfgray/effect-devtui
+            effect-devtools
+            ```
+            
+            ### Direct Binary Download
+            ```bash
+            # Linux x64
+            wget https://github.com/${{ github.repository }}/releases/download/v${{ steps.package-version.outputs.version }}/effect-devtools-linux-x64
+            chmod +x effect-devtools-linux-x64
+            ./effect-devtools-linux-x64
+            
+            # macOS (Apple Silicon)
+            wget https://github.com/${{ github.repository }}/releases/download/v${{ steps.package-version.outputs.version }}/effect-devtools-darwin-arm64
+            chmod +x effect-devtools-darwin-arm64
+            ./effect-devtools-darwin-arm64
+            ```
+            
+            Built from commit ${{ github.sha }}
+          files: |
+            dist/effect-devtools-linux-x64/effect-devtools-linux-x64
+            dist/effect-devtools-linux-arm64/effect-devtools-linux-arm64
+            dist/effect-devtools-linux-x64-musl/effect-devtools-linux-x64-musl
+            dist/effect-devtools-linux-arm64-musl/effect-devtools-linux-arm64-musl
+            dist/effect-devtools-darwin-x64/effect-devtools-darwin-x64
+            dist/effect-devtools-darwin-arm64/effect-devtools-darwin-arm64
+            dist/effect-devtools-windows-x64/effect-devtools-windows-x64.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node for npm publishing
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

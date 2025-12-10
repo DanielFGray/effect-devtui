@@ -43,6 +43,7 @@ function HelpOverlay() {
   [Enter]      - Expand/collapse span (when Spans focused)
 
 Clients Section:
+  Auto-expands when focused
   Navigate to select active client (filters spans and metrics)
 
   Spans Section:
