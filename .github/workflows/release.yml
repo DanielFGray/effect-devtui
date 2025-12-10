@@ -62,20 +62,17 @@ jobs:
             chmod +x effect-devtools-linux-x64
             ./effect-devtools-linux-x64
             
-            # macOS (Apple Silicon)
-            wget https://github.com/${{ github.repository }}/releases/download/v${{ steps.package-version.outputs.version }}/effect-devtools-darwin-arm64
-            chmod +x effect-devtools-darwin-arm64
-            ./effect-devtools-darwin-arm64
+            # macOS (Intel)
+            wget https://github.com/${{ github.repository }}/releases/download/v${{ steps.package-version.outputs.version }}/effect-devtools-darwin-x64
+            chmod +x effect-devtools-darwin-x64
+            ./effect-devtools-darwin-x64
             ```
             
             Built from commit ${{ github.sha }}
           files: |
             dist/effect-devtools-linux-x64/effect-devtools-linux-x64
-            dist/effect-devtools-linux-arm64/effect-devtools-linux-arm64
             dist/effect-devtools-linux-x64-musl/effect-devtools-linux-x64-musl
-            dist/effect-devtools-linux-arm64-musl/effect-devtools-linux-arm64-musl
             dist/effect-devtools-darwin-x64/effect-devtools-darwin-x64
-            dist/effect-devtools-darwin-arm64/effect-devtools-darwin-arm64
             dist/effect-devtools-windows-x64/effect-devtools-windows-x64.exe
           draft: false
           prerelease: false

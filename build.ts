@@ -18,28 +18,28 @@ const allTargets: {
   arch: "arm64" | "x64"
   abi?: "musl"
 }[] = [
-  {
-    os: "linux",
-    arch: "arm64",
-  },
-  {
-    os: "linux",
-    arch: "x64",
-  },
-  {
-    os: "linux",
-    arch: "arm64",
-    abi: "musl",
-  },
+  // {
+  //   os: "linux",
+  //   arch: "arm64",
+  // },
   {
     os: "linux",
     arch: "x64",
+  },
+  // {
+  //   os: "linux",
+  //   arch: "arm64",
+  //   abi: "musl",
+  // },
+  {
+    os: "linux",
+    arch: "x64",
     abi: "musl",
   },
-  {
-    os: "darwin",
-    arch: "arm64",
-  },
+  // {
+  //   os: "darwin",
+  //   arch: "arm64",
+  // },
   {
     os: "darwin",
     arch: "x64",
@@ -55,6 +55,13 @@ const targets = singleFlag
   : allTargets
 
 await Bun.$`rm -rf dist`
+
+// Install platform-specific native modules for all targets
+const skipInstall = process.argv.includes("--skip-install")
+if (!skipInstall) {
+  console.log("Installing platform-specific native modules...")
+  await Bun.$`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
+}
 
 for (const item of targets) {
   const name = [
