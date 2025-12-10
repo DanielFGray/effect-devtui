@@ -14,12 +14,9 @@
   },
   "homepage": "https://github.com/DanielFGray/effect-tui#readme",
   "type": "module",
-  "files": ["dist"],
+  "files": ["dist", "bin"],
   "bin": {
     "effect-devtools": "./bin/effect-devtools"
-  },
-  "overrides": {
-    "solid-js": "file:../../opentui-source/node_modules/solid-js"
   },
   "scripts": {
     "dev": "bun --watch --conditions=browser src/index.tsx",
