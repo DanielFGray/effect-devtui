@@ -14,7 +14,7 @@
   },
   "homepage": "https://github.com/DanielFGray/effect-tui#readme",
   "type": "module",
-  "files": ["dist", "bin"],
+  "files": ["dist/index.js", "dist/index.js.map", "bin"],
   "bin": {
     "effect-devtools": "./bin/effect-devtools"
   },
