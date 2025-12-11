@@ -2,7 +2,7 @@
 
 A terminal user interface (TUI) for Effect DevTools. View traces, spans, metrics, and inspect your Effect applications directly from your terminal!
 
-Built with [OpenTUI](https://github.com/opentui/opentui) and inspired by the [Effect DevTools VS Code extension](../vscode-extension/), but with a more limited feature set focused on observability rather than debugging.
+Built with [OpenTUI](https://github.com/sst/opentui) and inspired by the [Effect DevTools VS Code extension](../vscode-extension/), but with a more limited feature set focused on observability rather than debugging.
 
 <img width="1056" height="864" alt="20251210" src="https://github.com/user-attachments/assets/acc54df6-77fa-4b5c-b189-6ccba2e0bd14" />
 
@@ -19,7 +19,7 @@ bunx effect-devtui
 
 ## Features
 
-- 🔍 **Real-time Span Viewer** - View and navigate span traces with expandable tree structure
+- 🔍 **Real-time Span Viewer** - View and navigate span traces with an expandable tree structure
 - 📊 **Metrics Dashboard** - Monitor counters, gauges, histograms, frequencies, and summaries
 - 👥 **Multi-Client Support** - Connect multiple Effect applications simultaneously
 - ⌨️ **Keyboard Navigation** - Vim-style navigation (j/k) with intuitive shortcuts
@@ -65,7 +65,7 @@ const DevToolsLive = DevTools.layer("ws://your-host:34437");
 
 When running your Effect app in Docker and connecting to the DevTools TUI on your host machine:
 
-1. Add extra host to your `docker-compose.yml`:
+1. Add an extra host to your `docker-compose.yml`:
 
 ```yaml
 services:
