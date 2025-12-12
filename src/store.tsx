@@ -18,6 +18,7 @@ import {
 } from "solid-js";
 import type * as Domain from "@effect/experimental/DevTools/Domain";
 import type { Client } from "./server";
+import { getCommands, filterCommands } from "./commands";
 
 // =============================================================================
 // Types
@@ -587,57 +588,48 @@ export function StoreProvider(props: ParentProps) {
     },
 
     navigateCommandUp: () => {
-      // Import commands to get the filtered list length
-      import("./commands").then(({ getCommands, filterCommands }) => {
-        const allCommands = getCommands(actions);
-        const filtered = filterCommands(
-          allCommands,
-          store.ui.commandPaletteQuery,
-        );
-        if (filtered.length === 0) return;
+      const allCommands = getCommands(actions);
+      const filtered = filterCommands(
+        allCommands,
+        store.ui.commandPaletteQuery,
+      );
+      if (filtered.length === 0) return;
 
-        setStore("ui", "selectedCommandIndex", (prev) => {
-          if (prev <= 0) return filtered.length - 1;
-          return prev - 1;
-        });
+      setStore("ui", "selectedCommandIndex", (prev) => {
+        if (prev <= 0) return filtered.length - 1;
+        return prev - 1;
       });
     },
 
     navigateCommandDown: () => {
-      // Import commands to get the filtered list length
-      import("./commands").then(({ getCommands, filterCommands }) => {
-        const allCommands = getCommands(actions);
-        const filtered = filterCommands(
-          allCommands,
-          store.ui.commandPaletteQuery,
-        );
-        if (filtered.length === 0) return;
+      const allCommands = getCommands(actions);
+      const filtered = filterCommands(
+        allCommands,
+        store.ui.commandPaletteQuery,
+      );
+      if (filtered.length === 0) return;
 
-        setStore("ui", "selectedCommandIndex", (prev) => {
-          if (prev >= filtered.length - 1) return 0;
-          return prev + 1;
-        });
+      setStore("ui", "selectedCommandIndex", (prev) => {
+        if (prev >= filtered.length - 1) return 0;
+        return prev + 1;
       });
     },
 
     executeSelectedCommand: () => {
-      // Import commands to get the selected command
-      import("./commands").then(({ getCommands, filterCommands }) => {
-        const allCommands = getCommands(actions);
-        const filtered = filterCommands(
-          allCommands,
-          store.ui.commandPaletteQuery,
-        );
-        const selected = filtered[store.ui.selectedCommandIndex];
-        if (selected) {
-          selected.execute();
-          batch(() => {
-            setStore("ui", "showCommandPalette", false);
-            setStore("ui", "commandPaletteQuery", "");
-            setStore("ui", "selectedCommandIndex", 0);
-          });
-        }
-      });
+      const allCommands = getCommands(actions);
+      const filtered = filterCommands(
+        allCommands,
+        store.ui.commandPaletteQuery,
+      );
+      const selected = filtered[store.ui.selectedCommandIndex];
+      if (selected) {
+        selected.execute();
+        batch(() => {
+          setStore("ui", "showCommandPalette", false);
+          setStore("ui", "commandPaletteQuery", "");
+          setStore("ui", "selectedCommandIndex", 0);
+        });
+      }
     },
 
     expandAllSpans: () => {

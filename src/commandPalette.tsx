@@ -3,20 +3,46 @@
  * Modal overlay with command search and execution
  */
 
-import { For, Show, createMemo } from "solid-js";
+import { For, Show, createMemo, createEffect } from "solid-js";
 import { useStore } from "./store";
 import { getCommands, filterCommands } from "./commands";
 import { useTerminalDimensions } from "@opentui/solid";
-import { RGBA } from "@opentui/core";
+import { RGBA, type ScrollBoxRenderable } from "@opentui/core";
 
 export function CommandPalette() {
   const { store, actions } = useStore();
   const dimensions = useTerminalDimensions();
+  let scrollBoxRef: ScrollBoxRenderable | undefined;
 
   // Get filtered commands
   const filteredCommands = createMemo(() => {
     const allCommands = getCommands(actions);
     return filterCommands(allCommands, store.ui.commandPaletteQuery);
+  });
+
+  // Auto-scroll when selection changes
+  createEffect(() => {
+    const selectedIndex = store.ui.selectedCommandIndex;
+    if (!scrollBoxRef) return;
+
+    // Find the target box by ID
+    const target = scrollBoxRef.getChildren().find((child) => {
+      return child.id === `command-${selectedIndex}`;
+    });
+
+    if (!target) return;
+
+    // Calculate relative position
+    const y = target.y - scrollBoxRef.y;
+
+    // Scroll down if needed
+    if (y >= scrollBoxRef.height) {
+      scrollBoxRef.scrollBy(y - scrollBoxRef.height + 1);
+    }
+    // Scroll up if needed
+    if (y < 0) {
+      scrollBoxRef.scrollBy(y);
+    }
   });
 
   return (
@@ -38,7 +64,7 @@ export function CommandPalette() {
           maxWidth={dimensions().width - 2}
           flexDirection="column"
           backgroundColor="#1a1b26"
-          border={["all"]}
+          border={["top", "bottom", "left", "right"]}
           borderColor="#414868"
           paddingTop={1}
         >
@@ -56,11 +82,13 @@ export function CommandPalette() {
 
           {/* Command list */}
           <scrollbox
+            ref={(r) => (scrollBoxRef = r)}
             flexDirection="column"
-            height={12}
+            height={5}
             flexShrink={0}
             paddingLeft={2}
             paddingRight={2}
+            scrollbarOptions={{ visible: false }}
           >
             <Show
               when={filteredCommands().length > 0}
@@ -75,6 +103,7 @@ export function CommandPalette() {
 
                   return (
                     <box
+                      id={`command-${index()}`}
                       flexDirection="row"
                       justifyContent="space-between"
                       backgroundColor={isSelected() ? "#414868" : undefined}

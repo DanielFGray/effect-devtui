@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+console.log("[INDEX MODULE] Loading index.tsx");
 import { render, useKeyboard, useRenderer } from "@opentui/solid";
-import { Show, createMemo, onMount } from "solid-js";
+import { Show, createMemo, onMount, createEffect } from "solid-js";
 import * as Option from "effect/Option";
 import { PORT } from "./runtime";
 import { StoreProvider, useStore, type FocusedSection } from "./store";
@@ -92,6 +93,33 @@ function AppContent() {
     if (spansScrollBoxRef) {
       // Access the protected _focusable property to prevent scrollbox from handling keys
       (spansScrollBoxRef as any)._focusable = false;
+    }
+  });
+
+  // Auto-scroll to keep selected span in view
+  createEffect(() => {
+    const selectedSpanId = store.ui.selectedSpanId;
+    if (!selectedSpanId || !spansScrollBoxRef) return;
+
+    // The span tree is wrapped in a box, so we need to get the children of that box
+    const scrollBoxChildren = spansScrollBoxRef.getChildren();
+    if (scrollBoxChildren.length === 0) return;
+
+    // Get the actual span text elements (children of the first box)
+    const spanElements = scrollBoxChildren[0].getChildren();
+    const target = spanElements.find((child) => child.id === selectedSpanId);
+    if (!target) return;
+
+    // Calculate relative position
+    const y = target.y - spansScrollBoxRef.y;
+
+    // Scroll down if needed
+    if (y >= spansScrollBoxRef.height) {
+      spansScrollBoxRef.scrollBy(y - spansScrollBoxRef.height + 1);
+    }
+    // Scroll up if needed
+    if (y < 0) {
+      spansScrollBoxRef.scrollBy(y);
     }
   });
 
