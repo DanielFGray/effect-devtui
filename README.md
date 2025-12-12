@@ -9,12 +9,11 @@ Built with [OpenTUI](https://github.com/opentui/opentui) and inspired by the [Ef
 ## Installation
 
 ```bash
-# Install globally
-npm install -g effect-devtui
-effect-devtools
+# Install as a dev dependency
+npm i -d effect-devtui
 
-# Or run directly with bunx
-bunx effect-devtui
+# Or run directly with npmx
+npmx effect-devtui
 ```
 
 ## Features
@@ -31,7 +30,8 @@ bunx effect-devtui
 To use Effect DevTools TUI with your Effect project, first install the required dependency:
 
 ```bash
-pnpm install @effect/experimental
+npm i @effect/experimental
+npm i -d effect-devtui
 ```
 
 Then add the `DevTools` layer to your Effect application:

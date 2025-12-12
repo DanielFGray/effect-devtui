@@ -8,7 +8,7 @@
 
 import * as Option from "effect/Option";
 import * as HashSet from "effect/HashSet";
-import { createStore, produce, reconcile } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import {
   batch,
   createContext,
@@ -18,14 +18,6 @@ import {
 } from "solid-js";
 import type * as Domain from "@effect/experimental/DevTools/Domain";
 import type { Client } from "./server";
-import * as fs from "fs";
-
-const log = (msg: string) => {
-  fs.appendFileSync(
-    "/tmp/effect-tui.log",
-    `${new Date().toISOString()} - Store: ${msg}\n`,
-  );
-};
 
 // =============================================================================
 // Types
@@ -69,6 +61,8 @@ export interface UIState {
   expandedSpanIds: Set<string>;
   expandedTraceIds: Set<string>; // For trace grouping
   clientsExpanded: boolean; // For client dropdown
+  spansHeight: number; // Height of the spans section (for resizing)
+  metricsHeight: number; // Height of the metrics section
 }
 
 export interface StoreState {
@@ -109,7 +103,11 @@ export interface StoreActions {
   toggleClientsExpanded: () => void;
   navigateUp: () => void;
   navigateDown: () => void;
+  navigateLeft: () => void;
+  navigateRight: () => void;
   toggleExpand: () => void;
+  setSpansHeight: (height: number) => void;
+  setMetricsHeight: (height: number) => void;
 }
 
 export interface StoreContext {
@@ -245,8 +243,8 @@ export function useStore(): StoreContext {
 // =============================================================================
 
 export function StoreProvider(props: ParentProps) {
-  log(
-    `StoreProvider: Initializing new store instance at ${new Date().toISOString()}`,
+  console.log(
+    `[Store] StoreProvider: Initializing new store instance at ${new Date().toISOString()}`,
   );
   const [store, setStore] = createStore<StoreState>({
     spans: [],
@@ -264,6 +262,8 @@ export function StoreProvider(props: ParentProps) {
       expandedSpanIds: new Set(),
       expandedTraceIds: new Set(),
       clientsExpanded: false,
+      spansHeight: 35, // Default height for spans section
+      metricsHeight: 6,
     },
     debugCounter: 0,
   });
@@ -285,10 +285,6 @@ export function StoreProvider(props: ParentProps) {
       spanBuffer = [];
       spanUpdateBuffer = new Map();
 
-      log(
-        `flushSpans: ${newSpans.length} new, ${updates.size} updates, current store has ${store.spans.length} spans`,
-      );
-
       // Use direct setStore path-based updates for better reactivity
       // First, apply updates to existing spans
       for (const [spanId, updatedSpan] of updates) {
@@ -308,25 +304,15 @@ export function StoreProvider(props: ParentProps) {
           if (bufferedEvents && bufferedEvents.length > 0) {
             span.events = bufferedEvents;
             eventBuffer.delete(span.spanId);
-            log(
-              `flushSpans: Applied ${bufferedEvents.length} buffered events to span ${span.spanId.substring(0, 8)}`,
-            );
           }
         }
 
         const allSpans = [...currentSpans, ...newSpans];
-        // Keep only last 200
-        const trimmed = allSpans.length > 200 ? allSpans.slice(-200) : allSpans;
-        // Update just the spans property
-        setStore("spans", trimmed);
-      }
 
-      log(
-        `flushSpans: After update, store has ${store.spans.length} spans, array=${store.spans
-          .slice(0, 3)
-          .map((s) => s.spanId.substring(0, 4))
-          .join(",")}`,
-      );
+        // No automatic pruning - let spans accumulate
+        // Users can press 'c' to clear spans manually when needed
+        setStore("spans", allSpans);
+      }
     }
   };
 
@@ -337,10 +323,10 @@ export function StoreProvider(props: ParentProps) {
   type NavigableItem = { type: "span"; span: SimpleSpan };
 
   // Helper to get visible spans for navigation (simplified - no trace grouping)
-  const getVisibleItems = (): NavigableItem[] => {
-    log(`getVisibleItems called: store.spans.length=${store.spans.length}`);
+  const getVisibleItems = (expandedIds: Set<string>): NavigableItem[] => {
     const result: NavigableItem[] = [];
     const spanMap = new Map(store.spans.map((s) => [s.spanId, s]));
+    const visited = new Set<string>();
 
     // Build children map
     const childrenMap = new Map<string, SimpleSpan[]>();
@@ -363,9 +349,18 @@ export function StoreProvider(props: ParentProps) {
 
     // DFS to collect visible spans
     const visitSpan = (span: SimpleSpan) => {
+      // Prevent visiting the same span twice
+      if (visited.has(span.spanId)) {
+        console.log(
+          `[Store] getVisibleItems: Skipping duplicate visit to ${span.name} (${span.spanId.substring(0, 8)})`,
+        );
+        return;
+      }
+      visited.add(span.spanId);
+
       result.push({ type: "span", span });
 
-      if (store.ui.expandedSpanIds.has(span.spanId)) {
+      if (expandedIds.has(span.spanId)) {
         const children = childrenMap.get(span.spanId) || [];
         for (const child of children) {
           visitSpan(child);
@@ -390,7 +385,6 @@ export function StoreProvider(props: ParentProps) {
       visitSpan(root);
     }
 
-    log(`getVisibleItems: returning ${result.length} items`);
     return result;
   };
 
@@ -399,8 +393,8 @@ export function StoreProvider(props: ParentProps) {
       const simple = simplifySpan(span);
       // Check if span already exists
       const existing = store.spans.find((s) => s.spanId === simple.spanId);
-      log(
-        `addSpan: ${simple.name}, store has ${store.spans.length} spans, existing=${!!existing}`,
+      console.log(
+        `[Store] addSpan: ${simple.name}, store has ${store.spans.length} spans, existing=${!!existing}`,
       );
       if (existing) {
         spanUpdateBuffer.set(simple.spanId, simple);
@@ -422,14 +416,14 @@ export function StoreProvider(props: ParentProps) {
 
       if (idx >= 0) {
         // Span exists, add event directly
-        log(
-          `addSpanEvent: Adding event "${simpleEvent.name}" to span ${spanId.substring(0, 8)}`,
+        console.log(
+          `[Store] addSpanEvent: Adding event "${simpleEvent.name}" to span ${spanId.substring(0, 8)}`,
         );
         setStore("spans", idx, "events", (events) => [...events, simpleEvent]);
       } else {
         // Span doesn't exist yet, buffer the event
-        log(
-          `addSpanEvent: Buffering event "${simpleEvent.name}" for span ${spanId.substring(0, 8)}`,
+        console.log(
+          `[Store] addSpanEvent: Buffering event "${simpleEvent.name}" for span ${spanId.substring(0, 8)}`,
         );
         const buffered = eventBuffer.get(spanId) || [];
         buffered.push(simpleEvent);
@@ -458,14 +452,24 @@ export function StoreProvider(props: ParentProps) {
     },
 
     toggleSpanExpanded: (spanId: string) => {
-      setStore(
-        produce((draft) => {
-          if (draft.ui.expandedSpanIds.has(spanId)) {
-            draft.ui.expandedSpanIds.delete(spanId);
-          } else {
-            draft.ui.expandedSpanIds.add(spanId);
-          }
-        }),
+      console.log(
+        `[Store] toggleSpanExpanded called for span ${spanId.substring(0, 8)}`,
+      );
+      console.log(
+        `[Store] Before: expandedSpanIds.size = ${store.ui.expandedSpanIds.size}, has(${spanId.substring(0, 8)}) = ${store.ui.expandedSpanIds.has(spanId)}`,
+      );
+
+      // Create a new Set to trigger Solid.js reactivity
+      const newExpandedIds = new Set(store.ui.expandedSpanIds);
+      if (newExpandedIds.has(spanId)) {
+        newExpandedIds.delete(spanId);
+      } else {
+        newExpandedIds.add(spanId);
+      }
+      setStore("ui", "expandedSpanIds", newExpandedIds);
+
+      console.log(
+        `[Store] After: expandedSpanIds.size = ${store.ui.expandedSpanIds.size}, has(${spanId.substring(0, 8)}) = ${store.ui.expandedSpanIds.has(spanId)}`,
       );
     },
 
@@ -522,7 +526,9 @@ export function StoreProvider(props: ParentProps) {
       if (client) {
         setStore("ui", "selectedClientIndex", index);
         setStore("activeClient", Option.some(client));
-        log(`selectClientByIndex: Selected client ${index}: ${client.name}`);
+        console.log(
+          `[Store] selectClientByIndex: Selected client ${index}: ${client.name}`,
+        );
       }
     },
 
@@ -547,7 +553,7 @@ export function StoreProvider(props: ParentProps) {
         const newIdx = currentIdx <= 0 ? clients.length - 1 : currentIdx - 1;
         actions.selectClientByIndex(newIdx);
       } else if (store.ui.focusedSection === "spans") {
-        const visibleItems = getVisibleItems();
+        const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
         if (visibleItems.length === 0) return;
 
         // Find current selection
@@ -581,8 +587,8 @@ export function StoreProvider(props: ParentProps) {
     },
 
     navigateDown: () => {
-      log(
-        `navigateDown: ENTRY - store.spans.length=${store.spans.length}, store object id=${typeof store}`,
+      console.log(
+        `[Store] navigateDown: ENTRY - store.spans.length=${store.spans.length}, store object id=${typeof store}`,
       );
       if (store.ui.focusedSection === "clients") {
         const clients = store.clients;
@@ -592,13 +598,19 @@ export function StoreProvider(props: ParentProps) {
         const newIdx = currentIdx >= clients.length - 1 ? 0 : currentIdx + 1;
         actions.selectClientByIndex(newIdx);
       } else if (store.ui.focusedSection === "spans") {
-        const visibleItems = getVisibleItems();
-        log(
-          `navigateDown: ${visibleItems.length} visible items, expandedIds=${Array.from(
+        const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
+        console.log(
+          `[Store] navigateDown: ${visibleItems.length} visible items, expandedIds=${Array.from(
             store.ui.expandedSpanIds,
           )
             .map((id) => id.substring(0, 4))
             .join(",")}`,
+        );
+        console.log(
+          `[Store] navigateDown: visibleItems length=${visibleItems.length}, names=${visibleItems
+            .map((item) => item.span.name)
+            .slice(0, 10)
+            .join(" -> ")}`,
         );
         if (visibleItems.length === 0) return;
 
@@ -612,13 +624,20 @@ export function StoreProvider(props: ParentProps) {
           );
         }
 
-        log(
-          `navigateDown: currentSpanId=${currentSpanId?.substring(0, 8)}, currentIdx=${currentIdx}`,
+        console.log(
+          `[Store] navigateDown: currentSpanId=${currentSpanId?.substring(0, 8)}, currentIdx=${currentIdx}`,
+        );
+        console.log(
+          `[Store] navigateDown: visibleItems=${visibleItems.map((item) => item.span.name).join(" -> ")}`,
         );
 
         const newIdx =
           currentIdx >= visibleItems.length - 1 ? 0 : currentIdx + 1;
         const newItem = visibleItems[newIdx];
+
+        console.log(
+          `[Store] navigateDown: newIdx=${newIdx}, newItem=${newItem.span.name}`,
+        );
 
         setStore("ui", "selectedSpanId", newItem.span.spanId);
         setStore("ui", "selectedTraceId", null);
@@ -636,6 +655,88 @@ export function StoreProvider(props: ParentProps) {
       }
     },
 
+    navigateLeft: () => {
+      if (store.ui.focusedSection !== "spans") return;
+
+      const selectedSpanId = store.ui.selectedSpanId;
+      if (!selectedSpanId) {
+        // No selection, just navigate up
+        actions.navigateUp();
+        return;
+      }
+
+      const selectedSpan = store.spans.find((s) => s.spanId === selectedSpanId);
+      if (!selectedSpan) {
+        actions.navigateUp();
+        return;
+      }
+
+      // If the span is expanded, collapse it
+      if (store.ui.expandedSpanIds.has(selectedSpanId)) {
+        actions.toggleSpanExpanded(selectedSpanId);
+      } else if (selectedSpan.parent) {
+        // If collapsed and has parent, navigate to parent
+        const parentSpan = store.spans.find(
+          (s) => s.spanId === selectedSpan.parent,
+        );
+        if (parentSpan) {
+          setStore("ui", "selectedSpanId", parentSpan.spanId);
+        } else {
+          // Parent not found, navigate up instead
+          actions.navigateUp();
+        }
+      } else {
+        // No parent and not expanded, navigate up
+        actions.navigateUp();
+      }
+    },
+
+    navigateRight: () => {
+      if (store.ui.focusedSection !== "spans") return;
+
+      const selectedSpanId = store.ui.selectedSpanId;
+      if (!selectedSpanId) {
+        // No selection, just navigate down
+        actions.navigateDown();
+        return;
+      }
+
+      // Check if span has children
+      const hasChildren = store.spans.some((s) => s.parent === selectedSpanId);
+
+      if (!hasChildren) {
+        // No children, navigate down instead
+        actions.navigateDown();
+        return;
+      }
+
+      // If not expanded, expand it
+      if (!store.ui.expandedSpanIds.has(selectedSpanId)) {
+        actions.toggleSpanExpanded(selectedSpanId);
+      } else {
+        // If already expanded, navigate to first child
+        const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
+        const currentIdx = visibleItems.findIndex(
+          (item) => item.span.spanId === selectedSpanId,
+        );
+
+        // First child should be the next item in the visible list
+        if (currentIdx >= 0 && currentIdx < visibleItems.length - 1) {
+          const nextItem = visibleItems[currentIdx + 1];
+          // Verify it's actually a child
+          if (nextItem.span.parent === selectedSpanId) {
+            setStore("ui", "selectedSpanId", nextItem.span.spanId);
+          } else {
+            // Not a child (shouldn't happen), navigate down instead
+            actions.navigateDown();
+          }
+        } else {
+          // No next item, navigate down as fallback
+          actions.navigateDown();
+        }
+      }
+    },
+
     toggleExpand: () => {
       if (store.ui.focusedSection === "spans") {
         // Check if a span is selected
@@ -644,12 +745,20 @@ export function StoreProvider(props: ParentProps) {
           const hadChildren = store.spans.some(
             (s) => s.parent === selectedSpanId,
           );
-          log(
-            `toggleExpand: toggling span ${selectedSpanId.substring(0, 8)}, has children: ${hadChildren}`,
+          console.log(
+            `[Store] toggleExpand: toggling span ${selectedSpanId.substring(0, 8)}, has children: ${hadChildren}`,
           );
           actions.toggleSpanExpanded(selectedSpanId);
         }
       }
+    },
+
+    setSpansHeight: (height: number) => {
+      setStore("ui", "spansHeight", height);
+    },
+
+    setMetricsHeight: (height: number) => {
+      setStore("ui", "metricsHeight", height);
     },
   };
 
@@ -659,7 +768,7 @@ export function StoreProvider(props: ParentProps) {
   // Start the Effect runtime AFTER the store is initialized
   // Use onMount to ensure it only runs once when the component mounts
   onMount(() => {
-    log("StoreProvider: Starting Effect runtime from onMount");
+    console.log("[Store] StoreProvider: Starting Effect runtime from onMount");
     // Import startRuntime here to avoid circular dependency issues
     import("./runtime").then(({ startRuntime }) => {
       startRuntime();

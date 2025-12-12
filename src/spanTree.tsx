@@ -5,8 +5,20 @@
 
 import { For, Show, createMemo } from "solid-js";
 
-import { getSpanDurationMs } from "./atoms";
 import type { SimpleSpan } from "./store";
+
+/**
+ * Calculates the duration of a span in milliseconds
+ */
+function getSpanDurationMs(span: {
+  endTime: bigint | null;
+  startTime: bigint;
+}): number | null {
+  if (span.endTime !== null) {
+    return Number(span.endTime - span.startTime) / 1_000_000;
+  }
+  return null;
+}
 
 /**
  * Tree node with depth information
@@ -18,6 +30,7 @@ interface TreeNode {
   hasChildren: boolean;
   isLastChild: boolean;
   isTraceGroup: boolean; // Always false now, kept for compatibility
+  ancestorLines: boolean[]; // For each depth level, whether to draw a vertical line
 }
 
 /**
@@ -28,11 +41,24 @@ function buildHierarchicalSpanTree(
   expandedSpanIds: Set<string>,
 ): TreeNode[] {
   const result: TreeNode[] = [];
-  const spanMap = new Map(spans.map((s) => [s.spanId, s]));
+
+  // Deduplicate spans - keep only the latest version of each spanId
+  // Prefer "ended" over "running" status
+  const deduped = new Map<string, SimpleSpan>();
+  for (const span of spans) {
+    const existing = deduped.get(span.spanId);
+    if (!existing || span.status === "ended") {
+      deduped.set(span.spanId, span);
+    }
+  }
+  const uniqueSpans = Array.from(deduped.values());
+
+  const spanMap = new Map(uniqueSpans.map((s) => [s.spanId, s]));
+  const visited = new Set<string>(); // Track visited spans to prevent duplicates
 
   // Build children map for all spans
   const childrenMap = new Map<string, SimpleSpan[]>();
-  for (const span of spans) {
+  for (const span of uniqueSpans) {
     if (span.parent) {
       const children = childrenMap.get(span.parent) || [];
       children.push(span);
@@ -50,7 +76,21 @@ function buildHierarchicalSpanTree(
   }
 
   // DFS to build visible tree
-  const visitSpan = (span: SimpleSpan, depth: number, isLastChild: boolean) => {
+  const visitSpan = (
+    span: SimpleSpan,
+    depth: number,
+    isLastChild: boolean,
+    ancestorLines: boolean[],
+  ) => {
+    // Prevent visiting the same span twice
+    if (visited.has(span.spanId)) {
+      console.log(
+        `[SpanTree] WARNING: Attempt to visit span ${span.name} (${span.spanId.substring(0, 8)}) twice! Skipping.`,
+      );
+      return;
+    }
+    visited.add(span.spanId);
+
     const children = childrenMap.get(span.spanId) || [];
     const hasChildren = children.length > 0;
     const isExpanded = expandedSpanIds.has(span.spanId);
@@ -62,17 +102,21 @@ function buildHierarchicalSpanTree(
       hasChildren,
       isLastChild,
       isTraceGroup: false,
+      ancestorLines,
     });
 
     if (hasChildren && isExpanded) {
       children.forEach((child, idx) => {
-        visitSpan(child, depth + 1, idx === children.length - 1);
+        const childIsLast = idx === children.length - 1;
+        // For children, add to ancestorLines whether current node continues down
+        const newAncestorLines = [...ancestorLines, !isLastChild];
+        visitSpan(child, depth + 1, childIsLast, newAncestorLines);
       });
     }
   };
 
   // Get root spans (spans with no parent or parent not in the current span set)
-  const rootSpans = spans.filter(
+  const rootSpans = uniqueSpans.filter(
     (s) => s.parent === null || !spanMap.has(s.parent),
   );
 
@@ -85,7 +129,7 @@ function buildHierarchicalSpanTree(
 
   // Visit each root span
   rootSpans.forEach((root, idx) => {
-    visitSpan(root, 0, idx === rootSpans.length - 1);
+    visitSpan(root, 0, idx === rootSpans.length - 1, []);
   });
 
   return result;
@@ -121,7 +165,16 @@ function getTreePrefix(node: TreeNode, expandedSpanIds: Set<string>): string {
     return "  ";
   }
 
-  const indent = "  ".repeat(node.depth);
+  // Build prefix from ancestor lines
+  let prefix = "";
+  for (let i = 0; i < node.depth; i++) {
+    if (node.ancestorLines[i]) {
+      prefix += "│ ";
+    } else {
+      prefix += "  ";
+    }
+  }
+
   const branch = node.isLastChild ? "└─" : "├─";
   const expand = node.hasChildren
     ? expandedSpanIds.has(node.span.spanId)
@@ -129,7 +182,7 @@ function getTreePrefix(node: TreeNode, expandedSpanIds: Set<string>): string {
       : "▶ "
     : "─ ";
 
-  return indent + branch + expand;
+  return prefix + branch + expand;
 }
 
 /**
@@ -202,12 +255,13 @@ export function SpanTreeView(props: {
 
             return (
               <text
+                id={node.span.spanId}
                 style={{
                   fg: isSelected() ? "#1a1b26" : statusColor(),
                   bg: isSelected() ? "#7aa2f7" : undefined,
                 }}
               >
-                {`${prefix}${node.span.name}${duration ? ` (${duration})` : ""}`}
+                {`${isSelected() ? "> " : "  "}${prefix}${node.span.name}${duration ? ` (${duration})` : ""}`}
               </text>
             );
           }}

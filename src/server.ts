@@ -13,14 +13,6 @@ import * as Hash from "effect/Hash";
 import * as Equal from "effect/Equal";
 import type { Dequeue } from "effect/Queue";
 import type { Scope } from "effect/Scope";
-import * as fs from "fs";
-
-const log = (msg: string) => {
-  fs.appendFileSync(
-    "/tmp/effect-tui.log",
-    `${new Date().toISOString()} - ${msg}\n`,
-  );
-};
 
 /**
  * Represents a connected Effect DevTools client
@@ -76,7 +68,7 @@ const makeClient = (serverClient: Server.Client, name?: string) =>
   Effect.gen(function* () {
     const { activeClient, clientId, clients } = yield* ServerContext;
 
-    log("New DevTools client connected!");
+    console.log("[Server] New DevTools client connected!");
 
     const spans = yield* Effect.acquireRelease(
       PubSub.sliding<Domain.Span | Domain.SpanEvent>({
@@ -122,7 +114,9 @@ const makeClient = (serverClient: Server.Client, name?: string) =>
 
     yield* serverClient.queue.take.pipe(
       Effect.flatMap((res) => {
-        log(`Received from client: ${res._tag}`);
+        if (res._tag !== "MetricsSnapshot") {
+          console.log(`[Server] Received from client: ${res._tag}`);
+        }
         switch (res._tag) {
           case "MetricsSnapshot": {
             return metrics.offer(res);
@@ -145,29 +139,35 @@ export const runServer = (port: number) =>
   Effect.gen(function* () {
     const context = yield* ServerContext;
 
-    log("Starting DevTools server...");
+    console.log("[Server] Starting DevTools server...");
 
     const run = Server.run((...args) => {
-      log(`Server.run callback invoked with ${args.length} args`);
+      console.log(
+        `[Server] Server.run callback invoked with ${args.length} args`,
+      );
       return makeClient(...args);
     }).pipe(
       Effect.provideServiceEffect(
         SocketServer.SocketServer,
         Effect.tap(NodeSocketServer.makeWebSocket({ port }), () =>
-          Effect.sync(() => log(`WebSocket server created on port ${port}`)),
+          Effect.sync(() =>
+            console.log(`[Server] WebSocket server created on port ${port}`),
+          ),
         ),
       ),
       Effect.scoped,
       Effect.interruptible,
       Effect.provideService(ServerContext, context),
       Effect.tapErrorCause((cause) =>
-        Effect.sync(() => log(`Server error: ${JSON.stringify(cause)}`)),
+        Effect.sync(() =>
+          console.log(`[Server] Server error: ${JSON.stringify(cause)}`),
+        ),
       ),
     );
 
-    log("Running server effect...");
+    console.log("[Server] Running server effect...");
     yield* run;
-    log("Server effect completed");
+    console.log("[Server] Server effect completed");
   }).pipe(Effect.scoped);
 
 /**

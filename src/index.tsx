@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { render, useKeyboard, useRenderer } from "@opentui/solid";
-import { Show, createMemo } from "solid-js";
+import { Show, createMemo, onMount } from "solid-js";
 import * as Option from "effect/Option";
 import { PORT } from "./runtime";
 import { StoreProvider, useStore, type FocusedSection } from "./store";
 import { SpanTreeView, SpanDetailsPanel } from "./spanTree";
 import { MetricsView, MetricDetailsPanel } from "./metricsView";
 import { ClientDropdown } from "./clientDropdown";
+import { ResizableBox } from "./resizableBox";
+import type { ScrollBoxRenderable } from "@opentui/core";
 
 /**
  * Effect DevTools TUI - Stacked Single-View Layout
@@ -28,18 +30,27 @@ function HelpOverlay() {
   return (
     <box
       flexDirection="column"
-      padding={2}
       width="100%"
+      height="100%"
       backgroundColor="#1a1b26"
     >
-      <text style={{ fg: "#7aa2f7" }} marginBottom={1}>
+      <text style={{ fg: "#7aa2f7" }} paddingLeft={2} paddingTop={1}>
         Effect DevTools - Keyboard Shortcuts
       </text>
-      <text style={{ fg: "#c0caf5" }}>
-        {`Navigation:
+      <scrollbox
+        flexGrow={1}
+        style={{
+          rootOptions: { paddingLeft: 2, paddingRight: 2, paddingBottom: 1 },
+        }}
+        focused
+      >
+        <text style={{ fg: "#c0caf5" }}>
+          {`Navigation:
   [Tab]        - Cycle focus: Clients → Spans → Metrics
   [j] or [↓]   - Navigate down in focused section
   [k] or [↑]   - Navigate up in focused section
+  [←]          - Collapse span, navigate to parent, or navigate up
+  [→]          - Expand span, navigate to first child, or navigate down
   [Enter]      - Expand/collapse span (when Spans focused)
 
 Clients Section:
@@ -47,7 +58,9 @@ Clients Section:
   Navigate to select active client (filters spans and metrics)
 
   Spans Section:
-    Navigate to select span, press Enter to expand/collapse children
+    Navigate to select span with arrows or j/k
+    Press → to expand and navigate into children
+    Press ← to collapse and navigate to parent
     Selected span details shown in right panel
 
 Metrics Section:
@@ -55,12 +68,14 @@ Metrics Section:
 
 General:
   [?] or [h]   - Toggle this help
+  [F12]        - Toggle debug console (shows internal logs)
   [c]          - Clear spans or metrics (depending on focused section)
   [q]          - Quit application
   [Ctrl+C]     - Force exit
 
-Press any key to close...`}
-      </text>
+Press any key (except arrows/j/k) to close...`}
+        </text>
+      </scrollbox>
     </box>
   );
 }
@@ -68,6 +83,17 @@ Press any key to close...`}
 function AppContent() {
   const renderer = useRenderer();
   const { store, actions } = useStore();
+
+  // Ref for the spans scrollbox to disable its keyboard handling
+  let spansScrollBoxRef: ScrollBoxRenderable | undefined;
+
+  // Disable scrollbox keyboard handling on mount
+  onMount(() => {
+    if (spansScrollBoxRef) {
+      // Access the protected _focusable property to prevent scrollbox from handling keys
+      (spansScrollBoxRef as any)._focusable = false;
+    }
+  });
 
   // Setup keyboard handlers
   useKeyboard((key) => {
@@ -88,8 +114,29 @@ function AppContent() {
       return;
     }
 
-    // Close help on any other key when help is shown
+    // Toggle console overlay
+    if (key.name === "f12") {
+      renderer.console.toggle();
+      return;
+    }
+
+    // Close help on any key except navigation keys when help is shown
     if (store.ui.showHelp) {
+      // Don't close on navigation keys - allow scrolling
+      if (
+        key.name === "up" ||
+        key.name === "down" ||
+        key.name === "left" ||
+        key.name === "right" ||
+        key.name === "j" ||
+        key.name === "k" ||
+        key.name === "pageup" ||
+        key.name === "pagedown"
+      ) {
+        // Let navigation keys pass through (no-op, don't close help)
+        return;
+      }
+      // Close help on any other key
       actions.toggleHelp();
       return;
     }
@@ -110,6 +157,14 @@ function AppContent() {
     }
     if (key.name === "k" || key.name === "up") {
       actions.navigateUp();
+      return;
+    }
+    if (key.name === "left") {
+      actions.navigateLeft();
+      return;
+    }
+    if (key.name === "right") {
+      actions.navigateRight();
       return;
     }
 
@@ -175,6 +230,7 @@ function AppContent() {
             flexDirection="column"
             padding={1}
             paddingBottom={0}
+            flexShrink={0}
             height="auto"
           >
             <text
@@ -195,75 +251,85 @@ function AppContent() {
           </box>
 
           {/* Separator */}
-          <box height={1} border={["bottom"]} borderColor="#30363D" />
-
-          {/* Spans Section - Largest section with side-by-side layout */}
           <box
-            flexDirection="column"
-            padding={1}
-            paddingBottom={0}
-            flexGrow={2}
+            height={1}
+            flexShrink={0}
+            border={["bottom"]}
+            borderColor="#30363D"
+          />
+
+          {/* Spans Section - Resizable with drag handle */}
+          <ResizableBox
+            height={store.ui.spansHeight}
+            minHeight={10}
+            maxHeight={50}
+            onResize={actions.setSpansHeight}
           >
-            <text
-              style={{ fg: getSectionHeaderColor("spans") }}
-              marginBottom={1}
+            <box
+              flexDirection="column"
+              padding={1}
+              paddingBottom={0}
+              flexGrow={1}
             >
-              {`Spans (${spanCount()}) - Active: ${store.activeClient
-                .pipe(Option.map((c) => c.name))
-                .pipe(Option.getOrElse(() => "None"))}`}
-            </text>
-
-            {/* Side-by-side: Span list and details */}
-            <box flexDirection="row" flexGrow={1}>
-              {/* Span list - left side */}
-              <box
-                flexDirection="column"
-                width="60%"
-                overflow="scroll"
-                marginRight={1}
+              <text
+                style={{ fg: getSectionHeaderColor("spans") }}
+                marginBottom={1}
               >
-                <SpanTreeView
-                  spans={store.spans}
-                  selectedSpanId={store.ui.selectedSpanId}
-                  expandedSpanIds={store.ui.expandedSpanIds}
-                />
-              </box>
+                {`Spans (${spanCount()}) - Active: ${store.activeClient
+                  .pipe(Option.map((c) => c.name))
+                  .pipe(Option.getOrElse(() => "None"))}`}
+              </text>
 
-              {/* Span Details - right side */}
-              <box
-                flexDirection="column"
-                width="40%"
-                overflow="scroll"
-                paddingLeft={1}
-                border={["left"]}
-                borderColor="#30363D"
-              >
-                <Show
-                  when={store.ui.selectedSpanId !== null}
-                  fallback={
-                    <text style={{ fg: "#565f89" }}>
-                      {`Select a span with j/k\nPress Enter to expand`}
-                    </text>
-                  }
+              {/* Side-by-side: Span list and details */}
+              <box flexDirection="row" flexGrow={1}>
+                {/* Span list - left side */}
+                <scrollbox
+                  ref={(r) => (spansScrollBoxRef = r)}
+                  width="60%"
+                  marginRight={1}
                 >
-                  <SpanDetailsPanel
+                  <SpanTreeView
                     spans={store.spans}
-                    spanId={store.ui.selectedSpanId}
+                    selectedSpanId={store.ui.selectedSpanId}
+                    expandedSpanIds={store.ui.expandedSpanIds}
                   />
-                </Show>
+                </scrollbox>
+
+                {/* Span Details - right side */}
+                <scrollbox
+                  width="40%"
+                  paddingLeft={1}
+                  style={{
+                    rootOptions: {
+                      border: ["left"],
+                      borderColor: "#30363D",
+                    },
+                  }}
+                >
+                  <Show
+                    when={store.ui.selectedSpanId !== null}
+                    fallback={
+                      <text style={{ fg: "#565f89" }}>
+                        {`Select a span with j/k\nPress → to expand or Enter`}
+                      </text>
+                    }
+                  >
+                    <SpanDetailsPanel
+                      spans={store.spans}
+                      spanId={store.ui.selectedSpanId}
+                    />
+                  </Show>
+                </scrollbox>
               </box>
             </box>
-          </box>
+          </ResizableBox>
 
-          {/* Separator */}
-          <box height={1} border={["bottom"]} borderColor="#30363D" />
-
-          {/* Metrics Section */}
+          {/* Metrics Section - fills remaining space */}
           <box
             flexDirection="column"
             padding={1}
             paddingBottom={0}
-            height="20%"
+            flexGrow={1}
           >
             <text
               style={{ fg: getSectionHeaderColor("metrics") }}
@@ -275,26 +341,27 @@ function AppContent() {
             {/* Side-by-side: Metrics list and details */}
             <box flexDirection="row" flexGrow={1}>
               {/* Metrics list - left side */}
-              <box
-                flexDirection="column"
+              <scrollbox
                 width="60%"
-                overflow="scroll"
                 marginRight={1}
+                focused={store.ui.focusedSection === "metrics"}
               >
                 <MetricsView
                   metrics={store.metrics}
                   selectedMetricName={store.ui.selectedMetricName}
                 />
-              </box>
+              </scrollbox>
 
               {/* Metric Details - right side */}
-              <box
-                flexDirection="column"
+              <scrollbox
                 width="40%"
-                overflow="scroll"
                 paddingLeft={1}
-                border={["left"]}
-                borderColor="#30363D"
+                style={{
+                  rootOptions: {
+                    border: ["left"],
+                    borderColor: "#30363D",
+                  },
+                }}
               >
                 <Show
                   when={store.ui.selectedMetricName !== null}
@@ -309,7 +376,7 @@ function AppContent() {
                     metricName={store.ui.selectedMetricName}
                   />
                 </Show>
-              </box>
+              </scrollbox>
             </box>
           </box>
         </Show>
@@ -334,4 +401,8 @@ function App() {
 }
 
 // Setup and mount app
-render(App);
+render(App, {
+  consoleOptions: {
+    backgroundColor: "#1a1b26", // Match the main UI background
+  },
+});

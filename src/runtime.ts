@@ -15,14 +15,6 @@ import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import { runServer, ServerContext, type Client } from "./server";
 import { getGlobalActions, type StoreActions } from "./store";
 import type * as Domain from "@effect/experimental/DevTools/Domain";
-import * as fs from "fs";
-
-const log = (msg: string) => {
-  fs.appendFileSync(
-    "/tmp/effect-tui.log",
-    `${new Date().toISOString()} - Runtime: ${msg}\n`,
-  );
-};
 
 export const PORT = 34437;
 
@@ -35,7 +27,7 @@ function waitForActions(): Effect.Effect<StoreActions> {
     while (attempts < 100) {
       const actions = getGlobalActions();
       if (actions) {
-        log("Got global store actions");
+        console.log("[Runtime] Got global store actions");
         return actions;
       }
       yield* Effect.sleep("50 millis");
@@ -68,11 +60,13 @@ const program = Effect.gen(function* () {
     Effect.sync(() => {
       const actions = getGlobalActions();
       if (!actions) {
-        log("WARNING: No actions available in clients.changes handler");
+        console.log(
+          "[Runtime] WARNING: No actions available in clients.changes handler",
+        );
         return;
       }
       actions.setClientsFromHashSet(clientSet);
-      log(`Clients updated: ${HashSet.size(clientSet)}`);
+      console.log(`[Runtime] Clients updated: ${HashSet.size(clientSet)}`);
     }),
   ).pipe(Effect.fork);
 
@@ -81,14 +75,16 @@ const program = Effect.gen(function* () {
     Effect.sync(() => {
       const actions = getGlobalActions();
       if (!actions) {
-        log("WARNING: No actions available in activeClient.changes handler");
+        console.log(
+          "[Runtime] WARNING: No actions available in activeClient.changes handler",
+        );
         return;
       }
       actions.setActiveClient(maybeClient);
       if (Option.isSome(maybeClient)) {
-        log(`Active client set to ${maybeClient.value.name}`);
+        console.log(`[Runtime] Active client set to ${maybeClient.value.name}`);
       } else {
-        log("Active client cleared");
+        console.log("[Runtime] Active client cleared");
       }
     }),
   ).pipe(Effect.fork);
@@ -97,9 +93,13 @@ const program = Effect.gen(function* () {
   // This is similar to TracerProvider.ts and MetricsProvider.ts in vscode-extension
   const handleClient = (client: Client) =>
     Effect.gen(function* () {
-      log(`Starting span subscription for client ${client.name}`);
+      console.log(
+        `[Runtime] Starting span subscription for client ${client.name}`,
+      );
       const spanQueue = yield* client.spans;
-      log(`Got span queue for client ${client.name}, starting stream`);
+      console.log(
+        `[Runtime] Got span queue for client ${client.name}, starting stream`,
+      );
 
       // Subscribe to spans
       yield* Stream.runForEach(
@@ -108,33 +108,47 @@ const program = Effect.gen(function* () {
           Effect.sync(() => {
             const actions = getGlobalActions();
             if (!actions) {
-              log("WARNING: No actions available in span handler");
+              console.log(
+                "[Runtime] WARNING: No actions available in span handler",
+              );
               return;
             }
 
-            log(`Received ${spanOrEvent._tag} from ${client.name}`);
+            console.log(
+              `[Runtime] Received ${spanOrEvent._tag} from ${client.name}`,
+            );
             if (spanOrEvent._tag === "Span") {
-              log(`Calling actions.addSpan for ${spanOrEvent.name}`);
+              console.log(
+                `[Runtime] Calling actions.addSpan for ${spanOrEvent.name}`,
+              );
               try {
                 actions.addSpan(spanOrEvent);
-                log(`Called actions.addSpan successfully`);
+                console.log(`[Runtime] Called actions.addSpan successfully`);
               } catch (e) {
-                log(`Error calling actions.addSpan: ${e}`);
+                console.log(`[Runtime] Error calling actions.addSpan: ${e}`);
               }
             } else if (spanOrEvent._tag === "SpanEvent") {
-              log(`Calling actions.addSpanEvent for ${spanOrEvent.name}`);
+              console.log(
+                `[Runtime] Calling actions.addSpanEvent for ${spanOrEvent.name}`,
+              );
               try {
                 actions.addSpanEvent(spanOrEvent);
-                log(`Called actions.addSpanEvent successfully`);
+                console.log(
+                  `[Runtime] Called actions.addSpanEvent successfully`,
+                );
               } catch (e) {
-                log(`Error calling actions.addSpanEvent: ${e}`);
+                console.log(
+                  `[Runtime] Error calling actions.addSpanEvent: ${e}`,
+                );
               }
             }
           }),
       ).pipe(Effect.fork);
 
       // Subscribe to metrics
-      log(`Starting metrics subscription for client ${client.name}`);
+      console.log(
+        `[Runtime] Starting metrics subscription for client ${client.name}`,
+      );
       const metricsQueue = yield* client.metrics;
       yield* Stream.runForEach(
         Stream.fromQueue(metricsQueue),
@@ -142,18 +156,16 @@ const program = Effect.gen(function* () {
           Effect.sync(() => {
             const actions = getGlobalActions();
             if (!actions) {
-              log("WARNING: No actions available in metrics handler");
+              console.log(
+                "[Runtime] WARNING: No actions available in metrics handler",
+              );
               return;
             }
 
-            log(
-              `Received metrics snapshot from ${client.name} with ${snapshot.metrics.length} metrics`,
-            );
             try {
               actions.updateMetrics(snapshot);
-              log(`Updated metrics successfully`);
             } catch (e) {
-              log(`Error updating metrics: ${e}`);
+              console.log(`[Runtime] Error updating metrics: ${e}`);
             }
           }),
       ).pipe(Effect.fork);
@@ -191,7 +203,7 @@ const program = Effect.gen(function* () {
   if (actions) {
     actions.setServerStatus("listening");
   }
-  log("Server is listening");
+  console.log("[Runtime] Server is listening");
 
   // Run forever
   yield* Effect.never;
@@ -206,12 +218,12 @@ let runtimeStarted = false;
  */
 export function startRuntime(): void {
   if (runtimeStarted) {
-    log("Runtime already started, skipping");
+    console.log("[Runtime] Runtime already started, skipping");
     return;
   }
 
   runtimeStarted = true;
-  log("Starting Effect runtime");
+  console.log("[Runtime] Starting Effect runtime");
 
   // Provide WebSocketConstructor for the server
   const WebSocketLive = NodeSocket.layerWebSocketConstructor;

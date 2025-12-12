@@ -2,7 +2,13 @@
   "name": "effect-devtui",
   "version": "0.1.0",
   "description": "Terminal UI for Effect DevTools",
-  "keywords": ["effect", "devtools", "tui", "terminal", "debugging"],
+  "keywords": [
+    "effect",
+    "devtools",
+    "tui",
+    "terminal",
+    "debugging"
+  ],
   "license": "MIT",
   "author": "Daniel F Gray",
   "repository": {
@@ -14,22 +20,26 @@
   },
   "homepage": "https://github.com/DanielFGray/effect-tui#readme",
   "type": "module",
-  "files": ["dist/index.js", "dist/index.js.map", "bin"],
+  "files": [
+    "dist/index.js",
+    "dist/index.js.map",
+    "bin"
+  ],
   "bin": {
     "effect-devtools": "./bin/effect-devtools"
   },
   "scripts": {
-    "dev": "bun --watch --conditions=browser src/index.tsx",
+    "dev": "bun --hot --conditions=browser src/index.tsx",
     "build": "./build.ts",
     "build:npm": "./build-npm.ts",
     "build:single": "./build.ts --single",
-    "start": "bun --conditions=browser src/index.tsx"
+    "start": "bun --watch --conditions=browser src/index.tsx",
+    "client": "bun example/client.ts"
   },
   "dependencies": {
-    "@effect-atom/atom": "^0.4.8",
-    "@effect-atom/atom-react": "^0.4.3",
     "@effect/experimental": "^0.57.11",
     "@effect/platform": "^0.93.6",
+    "@effect/platform-bun": "^0.86.0",
     "@effect/platform-node": "^0.103.0",
     "@opentui/core": "^0.1.59",
     "@opentui/react": "^0.1.59",

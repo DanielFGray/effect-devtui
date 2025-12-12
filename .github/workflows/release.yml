@@ -41,7 +41,7 @@ jobs:
 
       - name: Get version from package.json
         id: package-version
-        run: echo "version=$(cat package.json | jq -r '.version')" >> $GITHUB_OUTPUT
+        run: echo "version=$(jq -r '.version' package.json)" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -50,27 +50,27 @@ jobs:
           name: Effect DevTools TUI v${{ steps.package-version.outputs.version }}
           body: |
             ## Effect DevTools Terminal UI
-            
+
             ### Installation via npm
             ```bash
             npm install -g effect-devtui
             effect-devtools
             ```
-            
+
             ### Or download binary directly
             Download the binary for your platform below and run it directly.
-            
+
             ```bash
             # Linux x64
             ./effect-devtools-linux-x64
-            
+
             # macOS (Intel)
             ./effect-devtools-darwin-x64
-            
+
             # Windows
             effect-devtools-windows-x64.exe
             ```
-            
+
             Built from commit ${{ github.sha }}
           files: |
             dist/effect-devtools-linux-x64/effect-devtools-linux-x64
