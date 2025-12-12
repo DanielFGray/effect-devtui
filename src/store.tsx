@@ -67,6 +67,8 @@ export interface UIState {
   clientsExpanded: boolean; // For client dropdown
   spansHeight: number; // Height of the spans section (for resizing)
   metricsHeight: number; // Height of the metrics section
+  spanFilterQuery: string; // Filter query for spans
+  showSpanFilter: boolean; // Whether span filter input is visible
 }
 
 export interface StoreState {
@@ -120,6 +122,9 @@ export interface StoreActions {
   toggleExpand: () => void;
   setSpansHeight: (height: number) => void;
   setMetricsHeight: (height: number) => void;
+  setSpanFilterQuery: (query: string) => void;
+  toggleSpanFilter: () => void;
+  clearSpanFilter: () => void;
 }
 
 export interface StoreContext {
@@ -279,6 +284,8 @@ export function StoreProvider(props: ParentProps) {
       clientsExpanded: false,
       spansHeight: 35, // Default height for spans section
       metricsHeight: 6,
+      spanFilterQuery: "",
+      showSpanFilter: false,
     },
     debugCounter: 0,
   });
@@ -860,6 +867,20 @@ export function StoreProvider(props: ParentProps) {
 
     setMetricsHeight: (height: number) => {
       setStore("ui", "metricsHeight", height);
+    },
+
+    setSpanFilterQuery: (query: string) => {
+      setStore("ui", "spanFilterQuery", query);
+    },
+
+    toggleSpanFilter: () => {
+      // Just toggle visibility - don't clear query
+      // Query is preserved so user can continue editing when reopening
+      setStore("ui", "showSpanFilter", (prev) => !prev);
+    },
+
+    clearSpanFilter: () => {
+      setStore("ui", "spanFilterQuery", "");
     },
   };
 

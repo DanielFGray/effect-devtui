@@ -10,6 +10,7 @@ import { MetricsView, MetricDetailsPanel } from "./metricsView";
 import { ClientDropdown } from "./clientDropdown";
 import { ResizableBox } from "./resizableBox";
 import { CommandPalette } from "./commandPalette";
+import { SpanFilterInput } from "./spanFilterInput";
 import type { ScrollBoxRenderable } from "@opentui/core";
 
 /**
@@ -61,6 +62,7 @@ Clients Section:
     Navigate to select span with arrows or hjkl
     Press l/→ to expand and navigate into children
     Press h/← to collapse and navigate to parent
+    Press "/" to open span filter (search by name)
     Selected span details shown in right panel
 
 Metrics Section:
@@ -125,18 +127,7 @@ function AppContent() {
 
   // Setup keyboard handlers
   useKeyboard((key) => {
-    // Quit handlers
-    if (key.name === "q" && !key.ctrl) {
-      renderer.stop();
-      process.exit(0);
-    }
-    if (key.raw === "\u0003") {
-      // Ctrl+C
-      renderer.stop();
-      process.exit(0);
-    }
-
-    // Command palette keyboard handling (must be before other handlers)
+    // Command palette keyboard handling (must be before quit handlers)
     if (store.ui.showCommandPalette) {
       // Close on Esc
       if (key.name === "escape") {
@@ -174,6 +165,50 @@ function AppContent() {
 
       // Prevent other keys from doing anything when palette is open
       return;
+    }
+
+    // Span filter keyboard handling (must be before quit handlers)
+    if (store.ui.showSpanFilter) {
+      if (key.name === "escape") {
+        // Cancel: close filter and clear query
+        actions.clearSpanFilter();
+        actions.toggleSpanFilter();
+        return;
+      }
+
+      if (key.name === "return" || key.name === "enter") {
+        // Confirm: close filter but keep query active
+        actions.toggleSpanFilter();
+        return;
+      }
+
+      if (key.name === "backspace") {
+        const currentQuery = store.ui.spanFilterQuery;
+        if (currentQuery.length > 0) {
+          actions.setSpanFilterQuery(currentQuery.slice(0, -1));
+        }
+        return;
+      }
+
+      // Handle printable characters (including 'q')
+      if (key.raw && key.raw.length === 1 && !key.ctrl && !key.meta) {
+        actions.setSpanFilterQuery(store.ui.spanFilterQuery + key.raw);
+        return;
+      }
+
+      // Prevent other keys from doing anything when filter is open
+      return;
+    }
+
+    // Quit handlers (after modal input handlers)
+    if (key.name === "q" && !key.ctrl) {
+      renderer.stop();
+      process.exit(0);
+    }
+    if (key.raw === "\u0003") {
+      // Ctrl+C
+      renderer.stop();
+      process.exit(0);
     }
 
     // Help toggle
@@ -257,6 +292,28 @@ function AppContent() {
       } else if (store.ui.focusedSection === "metrics") {
         actions.clearMetrics();
       }
+      return;
+    }
+
+    // Span filter toggle with "/" key (only when spans section is focused)
+    if (
+      key.raw === "/" &&
+      !key.ctrl &&
+      !key.meta &&
+      store.ui.focusedSection === "spans"
+    ) {
+      actions.toggleSpanFilter();
+      return;
+    }
+
+    // Clear active span filter with Escape when not in filter input mode
+    if (
+      key.name === "escape" &&
+      store.ui.focusedSection === "spans" &&
+      store.ui.spanFilterQuery.length > 0 &&
+      !store.ui.showSpanFilter
+    ) {
+      actions.clearSpanFilter();
       return;
     }
   });
@@ -356,6 +413,31 @@ function AppContent() {
                   .pipe(Option.getOrElse(() => "None"))}`}
               </text>
 
+              {/* Span filter input (shown when typing) */}
+              <Show when={store.ui.showSpanFilter}>
+                <SpanFilterInput />
+              </Show>
+
+              {/* Active filter indicator (shown when filter closed but query active) */}
+              <Show
+                when={
+                  !store.ui.showSpanFilter &&
+                  store.ui.spanFilterQuery.length > 0
+                }
+              >
+                <box
+                  flexDirection="row"
+                  width="100%"
+                  paddingLeft={1}
+                  paddingBottom={1}
+                  flexShrink={0}
+                >
+                  <text style={{ fg: "#f7768e" }}>
+                    {`Filter: "${store.ui.spanFilterQuery}" (press / to edit, Esc to clear)`}
+                  </text>
+                </box>
+              </Show>
+
               {/* Side-by-side: Span list and details */}
               <box flexDirection="row" flexGrow={1}>
                 {/* Span list - left side */}
@@ -368,6 +450,7 @@ function AppContent() {
                     spans={store.spans}
                     selectedSpanId={store.ui.selectedSpanId}
                     expandedSpanIds={store.ui.expandedSpanIds}
+                    filterQuery={store.ui.spanFilterQuery || undefined}
                   />
                 </scrollbox>
 

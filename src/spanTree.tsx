@@ -39,6 +39,7 @@ interface TreeNode {
 function buildHierarchicalSpanTree(
   spans: ReadonlyArray<SimpleSpan>,
   expandedSpanIds: Set<string>,
+  filterQuery?: string,
 ): TreeNode[] {
   const result: TreeNode[] = [];
 
@@ -51,7 +52,15 @@ function buildHierarchicalSpanTree(
       deduped.set(span.spanId, span);
     }
   }
-  const uniqueSpans = Array.from(deduped.values());
+  let uniqueSpans = Array.from(deduped.values());
+
+  // Apply filter if provided
+  if (filterQuery && filterQuery.trim()) {
+    const lowerQuery = filterQuery.toLowerCase();
+    uniqueSpans = uniqueSpans.filter((span) =>
+      span.name.toLowerCase().includes(lowerQuery),
+    );
+  }
 
   const spanMap = new Map(uniqueSpans.map((s) => [s.spanId, s]));
   const visited = new Set<string>(); // Track visited spans to prevent duplicates
@@ -226,10 +235,15 @@ export function SpanTreeView(props: {
   spans: ReadonlyArray<SimpleSpan>;
   selectedSpanId: string | null;
   expandedSpanIds: Set<string>;
+  filterQuery?: string;
 }) {
-  // Memoize tree - will re-run whenever spans or expandedSpanIds change
+  // Memoize tree - will re-run whenever spans, expandedSpanIds, or filterQuery change
   const visibleNodes = createMemo(() =>
-    buildHierarchicalSpanTree(props.spans, props.expandedSpanIds),
+    buildHierarchicalSpanTree(
+      props.spans,
+      props.expandedSpanIds,
+      props.filterQuery,
+    ),
   );
 
   return (
