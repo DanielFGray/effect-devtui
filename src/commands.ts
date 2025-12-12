@@ -59,7 +59,7 @@ export function getCommands(actions: {
       id: "toggle-help",
       label: "Toggle Help",
       description: "Show or hide the help overlay",
-      shortcut: "? or h",
+      shortcut: "?",
       category: "view",
       execute: actions.toggleHelp,
     },

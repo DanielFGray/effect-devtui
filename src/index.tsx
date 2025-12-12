@@ -48,10 +48,8 @@ function HelpOverlay() {
         <text style={{ fg: "#c0caf5" }}>
           {`Navigation:
   [Tab]        - Cycle focus: Clients → Spans → Metrics
-  [j] or [↓]   - Navigate down in focused section
-  [k] or [↑]   - Navigate up in focused section
-  [←]          - Collapse span, navigate to parent, or navigate up
-  [→]          - Expand span, navigate to first child, or navigate down
+  [j/k] or [↓/↑] - Navigate down/up in focused section
+  [h/l] or [←/→] - Navigate left/right (collapse/expand spans)
   [Enter]      - Expand/collapse span (when Spans focused)
 
 Clients Section:
@@ -59,9 +57,9 @@ Clients Section:
   Navigate to select active client (filters spans and metrics)
 
   Spans Section:
-    Navigate to select span with arrows or j/k
-    Press → to expand and navigate into children
-    Press ← to collapse and navigate to parent
+    Navigate to select span with arrows or hjkl
+    Press l/→ to expand and navigate into children
+    Press h/← to collapse and navigate to parent
     Selected span details shown in right panel
 
 Metrics Section:
@@ -69,13 +67,13 @@ Metrics Section:
 
 General:
   [:]          - Open command palette (search and execute commands)
-  [?] or [h]   - Toggle this help
+  [?]          - Toggle this help
   [F12]        - Toggle debug console (shows internal logs)
   [c]          - Clear spans or metrics (depending on focused section)
   [q]          - Quit application
   [Ctrl+C]     - Force exit
 
-Press any key (except arrows/j/k) to close...`}
+Press any key (except arrows/hjkl) to close...`}
         </text>
       </scrollbox>
     </box>
@@ -151,7 +149,7 @@ function AppContent() {
     }
 
     // Help toggle
-    if (key.name === "?" || (key.name === "h" && !key.ctrl)) {
+    if (key.name === "?") {
       actions.toggleHelp();
       return;
     }
@@ -176,8 +174,10 @@ function AppContent() {
         key.name === "down" ||
         key.name === "left" ||
         key.name === "right" ||
+        key.name === "h" ||
         key.name === "j" ||
         key.name === "k" ||
+        key.name === "l" ||
         key.name === "pageup" ||
         key.name === "pagedown"
       ) {
@@ -198,7 +198,7 @@ function AppContent() {
       return;
     }
 
-    // Vim-style navigation
+    // Vim-style navigation (hjkl + arrow keys)
     if (key.name === "j" || key.name === "down") {
       actions.navigateDown();
       return;
@@ -207,11 +207,11 @@ function AppContent() {
       actions.navigateUp();
       return;
     }
-    if (key.name === "left") {
+    if (key.name === "h" || key.name === "left") {
       actions.navigateLeft();
       return;
     }
-    if (key.name === "right") {
+    if (key.name === "l" || key.name === "right") {
       actions.navigateRight();
       return;
     }
