@@ -8,6 +8,7 @@ import { SpanTreeView, SpanDetailsPanel } from "./spanTree";
 import { MetricsView, MetricDetailsPanel } from "./metricsView";
 import { ClientDropdown } from "./clientDropdown";
 import { ResizableBox } from "./resizableBox";
+import { CommandPalette } from "./commandPalette";
 import type { ScrollBoxRenderable } from "@opentui/core";
 
 /**
@@ -67,6 +68,7 @@ Metrics Section:
   Navigate to select metric, details shown inline below
 
 General:
+  [:]          - Open command palette (search and execute commands)
   [?] or [h]   - Toggle this help
   [F12]        - Toggle debug console (shows internal logs)
   [c]          - Clear spans or metrics (depending on focused section)
@@ -108,9 +110,55 @@ function AppContent() {
       process.exit(0);
     }
 
+    // Command palette keyboard handling (must be before other handlers)
+    if (store.ui.showCommandPalette) {
+      // Close on Esc
+      if (key.name === "escape") {
+        actions.toggleCommandPalette();
+        return;
+      }
+
+      // Navigate commands
+      if (key.name === "up") {
+        actions.navigateCommandUp();
+        return;
+      }
+      if (key.name === "down") {
+        actions.navigateCommandDown();
+        return;
+      }
+
+      // Execute selected command
+      if (key.name === "return" || key.name === "enter") {
+        actions.executeSelectedCommand();
+        return;
+      }
+
+      // Type to filter (printable characters, backspace, space)
+      if (key.raw && key.raw.length === 1 && !key.ctrl && !key.meta) {
+        actions.setCommandPaletteQuery(store.ui.commandPaletteQuery + key.raw);
+        return;
+      }
+      if (key.name === "backspace") {
+        actions.setCommandPaletteQuery(
+          store.ui.commandPaletteQuery.slice(0, -1),
+        );
+        return;
+      }
+
+      // Prevent other keys from doing anything when palette is open
+      return;
+    }
+
     // Help toggle
     if (key.name === "?" || (key.name === "h" && !key.ctrl)) {
       actions.toggleHelp();
+      return;
+    }
+
+    // Command palette toggle
+    if (key.raw === ":" && !key.ctrl && !key.shift) {
+      actions.toggleCommandPalette();
       return;
     }
 
@@ -385,9 +433,12 @@ function AppContent() {
       {/* Footer/Status Bar */}
       <box height={1} width="100%" backgroundColor="#414868" paddingLeft={1}>
         <text style={{ fg: "#c0caf5" }}>
-          {`${statusText()} | Port: ${PORT} | Clients: ${clientCount()} | Spans: ${spanCount()} | Metrics: ${metricCount()} | [Tab] Focus | [?] Help | [q] Quit`}
+          {`${statusText()} | Port: ${PORT} | Clients: ${clientCount()} | Spans: ${spanCount()} | Metrics: ${metricCount()} | [Tab] Focus | [?] Help | [:] Command | [q] Quit`}
         </text>
       </box>
+
+      {/* Command Palette Overlay */}
+      <CommandPalette />
     </>
   );
 }

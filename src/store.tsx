@@ -54,6 +54,9 @@ export interface SimpleMetric {
 export interface UIState {
   focusedSection: FocusedSection;
   showHelp: boolean;
+  showCommandPalette: boolean;
+  commandPaletteQuery: string;
+  selectedCommandIndex: number;
   selectedSpanId: string | null;
   selectedTraceId: string | null; // For selecting trace groups
   selectedMetricName: string | null;
@@ -100,6 +103,14 @@ export interface StoreActions {
   // UI actions
   setFocusedSection: (section: FocusedSection) => void;
   toggleHelp: () => void;
+  toggleCommandPalette: () => void;
+  setCommandPaletteQuery: (query: string) => void;
+  navigateCommandUp: () => void;
+  navigateCommandDown: () => void;
+  executeSelectedCommand: () => void;
+  executeCommand: (commandId: string) => void;
+  expandAllSpans: () => void;
+  collapseAllSpans: () => void;
   toggleClientsExpanded: () => void;
   navigateUp: () => void;
   navigateDown: () => void;
@@ -255,6 +266,9 @@ export function StoreProvider(props: ParentProps) {
     ui: {
       focusedSection: "spans" as const,
       showHelp: false,
+      showCommandPalette: false,
+      commandPaletteQuery: "",
+      selectedCommandIndex: 0,
       selectedSpanId: null,
       selectedTraceId: null,
       selectedMetricName: null,
@@ -538,6 +552,101 @@ export function StoreProvider(props: ParentProps) {
 
     toggleHelp: () => {
       setStore("ui", "showHelp", (prev) => !prev);
+    },
+
+    toggleCommandPalette: () => {
+      batch(() => {
+        setStore("ui", "showCommandPalette", (prev) => !prev);
+        // Reset query and selection when opening
+        if (!store.ui.showCommandPalette) {
+          setStore("ui", "commandPaletteQuery", "");
+          setStore("ui", "selectedCommandIndex", 0);
+        }
+      });
+    },
+
+    setCommandPaletteQuery: (query: string) => {
+      batch(() => {
+        setStore("ui", "commandPaletteQuery", query);
+        // Reset selection when query changes
+        setStore("ui", "selectedCommandIndex", 0);
+      });
+    },
+
+    executeCommand: (commandId: string) => {
+      // Import and execute command
+      import("./commands").then(({ getCommands }) => {
+        const commands = getCommands(actions);
+        const command = commands.find((cmd) => cmd.id === commandId);
+        if (command) {
+          command.execute();
+          // Close palette after execution
+          setStore("ui", "showCommandPalette", false);
+        }
+      });
+    },
+
+    navigateCommandUp: () => {
+      // Import commands to get the filtered list length
+      import("./commands").then(({ getCommands, filterCommands }) => {
+        const allCommands = getCommands(actions);
+        const filtered = filterCommands(
+          allCommands,
+          store.ui.commandPaletteQuery,
+        );
+        if (filtered.length === 0) return;
+
+        setStore("ui", "selectedCommandIndex", (prev) => {
+          if (prev <= 0) return filtered.length - 1;
+          return prev - 1;
+        });
+      });
+    },
+
+    navigateCommandDown: () => {
+      // Import commands to get the filtered list length
+      import("./commands").then(({ getCommands, filterCommands }) => {
+        const allCommands = getCommands(actions);
+        const filtered = filterCommands(
+          allCommands,
+          store.ui.commandPaletteQuery,
+        );
+        if (filtered.length === 0) return;
+
+        setStore("ui", "selectedCommandIndex", (prev) => {
+          if (prev >= filtered.length - 1) return 0;
+          return prev + 1;
+        });
+      });
+    },
+
+    executeSelectedCommand: () => {
+      // Import commands to get the selected command
+      import("./commands").then(({ getCommands, filterCommands }) => {
+        const allCommands = getCommands(actions);
+        const filtered = filterCommands(
+          allCommands,
+          store.ui.commandPaletteQuery,
+        );
+        const selected = filtered[store.ui.selectedCommandIndex];
+        if (selected) {
+          selected.execute();
+          batch(() => {
+            setStore("ui", "showCommandPalette", false);
+            setStore("ui", "commandPaletteQuery", "");
+            setStore("ui", "selectedCommandIndex", 0);
+          });
+        }
+      });
+    },
+
+    expandAllSpans: () => {
+      const allSpanIds = store.spans.map((s) => s.spanId);
+      setStore("ui", "expandedSpanIds", new Set(allSpanIds));
+    },
+
+    collapseAllSpans: () => {
+      setStore("ui", "expandedSpanIds", new Set());
     },
 
     toggleClientsExpanded: () => {
