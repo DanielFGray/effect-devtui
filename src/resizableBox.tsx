@@ -134,9 +134,10 @@ export function ResizableBox(props: ResizableBoxProps) {
   return (
     <box
       flexDirection="column"
-      flexGrow={0}
-      flexShrink={0}
-      height={props.height}
+      flexGrow={1}
+      flexShrink={1}
+      flexBasis={props.height}
+      minHeight={minHeight}
     >
       {/* Content area */}
       <box flexGrow={1} flexDirection="column">

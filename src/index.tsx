@@ -453,19 +453,16 @@ function AppContent() {
         >
           {/* Clients Section - Compact dropdown */}
           <box
-            flexDirection="column"
-            padding={1}
-            paddingBottom={0}
+            flexDirection="row"
+            paddingLeft={1}
+            paddingRight={1}
             flexShrink={0}
             height="auto"
           >
-            <text
-              style={{ fg: getSectionHeaderColor("clients") }}
-              marginBottom={1}
-            >
+            <text style={{ fg: getSectionHeaderColor("clients") }}>
               {`Clients (${clientCount()})`}
             </text>
-            <box paddingLeft={1}>
+            <box paddingLeft={2}>
               <ClientDropdown
                 clients={store.clients}
                 serverStatus={store.serverStatus}
@@ -487,20 +484,17 @@ function AppContent() {
           {/* Spans Section - Resizable with drag handle */}
           <ResizableBox
             height={store.ui.spansHeight}
-            minHeight={10}
+            minHeight={6}
             maxHeight={50}
             onResize={actions.setSpansHeight}
           >
             <box
               flexDirection="column"
-              padding={1}
-              paddingBottom={0}
+              paddingLeft={1}
+              paddingRight={1}
               flexGrow={1}
             >
-              <text
-                style={{ fg: getSectionHeaderColor("spans") }}
-                marginBottom={1}
-              >
+              <text style={{ fg: getSectionHeaderColor("spans") }}>
                 {`Spans (${spanCount()}) - Active: ${store.activeClient
                   .pipe(Option.map((c) => c.name))
                   .pipe(Option.getOrElse(() => "None"))}`}
@@ -582,6 +576,8 @@ function AppContent() {
             padding={1}
             paddingBottom={0}
             flexGrow={1}
+            minHeight={8}
+            maxHeight={15}
           >
             <text
               style={{ fg: getSectionHeaderColor("metrics") }}

@@ -199,7 +199,7 @@ export function StoreProvider(props: ParentProps) {
       expandedSpanIds: new Set(),
       expandedTraceIds: new Set(),
       clientsExpanded: false,
-      spansHeight: 35, // Default height for spans section
+      spansHeight: 12, // Default height for spans section (allows metrics to show on short terminals)
       metricsHeight: 6,
       spanFilterQuery: "",
       showSpanFilter: false,
