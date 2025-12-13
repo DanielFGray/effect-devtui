@@ -5,6 +5,7 @@ A terminal user interface (TUI) for Effect DevTools. View traces, spans, metrics
 Built with [OpenTUI](https://github.com/opentui/opentui) and inspired by the [Effect DevTools VS Code extension](../vscode-extension/), but with a more limited feature set focused on observability rather than debugging.
 
 <img width="1056" height="864" alt="20251210" src="https://github.com/user-attachments/assets/acc54df6-77fa-4b5c-b189-6ccba2e0bd14" />
+<img width="957" height="420" alt="Screenshot_20251212_210250" src="https://github.com/user-attachments/assets/cbc0fe98-b27f-4cf1-bbb9-f677cfedb827" />
 
 ## Installation
 
@@ -18,9 +19,21 @@ npmx effect-devtui
 
 ## Features
 
+### Observability
+
 - 🔍 **Real-time Span Viewer** - View and navigate span traces with expandable tree structure
 - 📊 **Metrics Dashboard** - Monitor counters, gauges, histograms, frequencies, and summaries
 - 👥 **Multi-Client Support** - Connect multiple Effect applications simultaneously
+
+### Code Analysis & Fixing
+
+- 🔧 **Automatic Layer Fixer** - Detect missing Effect service requirements and auto-generate layer composition code
+- 🎯 **Layer Analysis** - Scan codebase for Layer definitions and resolve service dependencies
+- 📋 **Dependency Resolution** - Handle transitive dependencies and multiple layer candidates
+- ✨ **Code Generation** - Auto-apply fixes directly to source files with AST-aware transformations
+
+### General
+
 - ⌨️ **Keyboard Navigation** - Vim-style navigation (j/k) with intuitive shortcuts
 - 🎨 **Split Panel Layout** - Side-by-side view of data and detailed information
 - 🚀 **Lightweight** - Runs in any terminal, no GUI required
@@ -47,10 +60,7 @@ const program = Effect.log("Hello!").pipe(
   Effect.forever,
 );
 
-program.pipe(
-  Effect.provide(DevTools.layer()),
-  NodeRuntime.runMain
-);
+program.pipe(Effect.provide(DevTools.layer()), NodeRuntime.runMain);
 ```
 
 ### Custom Server URL
@@ -86,15 +96,7 @@ If you're using `@effect/opentelemetry`, provide the `DevTools` layer **before**
 
 ## Comparison with VS Code Extension
 
-This TUI is a lightweight alternative focused on **observability**, not a full replacement for the VS Code extension.
-
-### Features
-
-- ✅ View Spans/Traces
-- ✅ Span Tree Navigation
-- ✅ Span Details (IDs, attributes, events)
-- ✅ Metrics Viewing
-- ✅ Multi-Client Support
+This TUI complements the VS Code extension by focusing on **observability and code analysis**, while the extension provides debugging capabilities and IDE integration.
 
 ## Related Projects
 
