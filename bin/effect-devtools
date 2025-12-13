@@ -1,13 +1,34 @@
 #!/usr/bin/env node
 
 // Entry point for effect-devtools npm package
-// Runs the bundled JavaScript version
+// Runs the platform-specific compiled binary
 
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { spawn } from "child_process";
+import { existsSync } from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Import and run the bundled app
-await import(join(__dirname, "..", "dist", "index.js"));
+const platform = process.platform === "win32" ? "windows" : process.platform;
+const arch = process.arch;
+const ext = process.platform === "win32" ? ".exe" : "";
+
+const binaryName = `effect-devtools-${platform}-${arch}`;
+const binaryPath = join(__dirname, "..", "dist", binaryName, binaryName + ext);
+
+if (!existsSync(binaryPath)) {
+  console.error(`Binary not found for your platform: ${platform}-${arch}`);
+  console.error(`Expected: ${binaryPath}`);
+  console.error(`\nSupported platforms: linux-x64, darwin-x64, windows-x64`);
+  process.exit(1);
+}
+
+const child = spawn(binaryPath, process.argv.slice(2), {
+  stdio: "inherit",
+});
+
+child.on("close", (code) => {
+  process.exit(code ?? 0);
+});

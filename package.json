@@ -1,6 +1,6 @@
 {
   "name": "effect-devtui",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Terminal UI for Effect DevTools",
   "keywords": [
     "effect",
@@ -42,9 +42,9 @@
     "@effect/platform-bun": "^0.86.0",
     "@effect/platform-node": "^0.103.0",
     "@opentui/core": "^0.1.59",
-    "@opentui/solid": "^0.1.59",
+    "@opentui/solid": "^0.1.60",
     "effect": "^3.19.10",
-    "solid-js": "^1.9.10",
+    "solid-js": "1.9.9",
     "ws": "^8.18.3"
   },
   "devDependencies": {

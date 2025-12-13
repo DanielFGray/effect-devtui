@@ -7,7 +7,6 @@ on:
       - 'src/**'
       - 'package.json'
       - 'build.ts'
-      - 'build-npm.ts'
       - 'bun.lock'
   workflow_dispatch:
 
@@ -35,9 +34,6 @@ jobs:
 
       - name: Build binaries for all platforms
         run: bun run build
-
-      - name: Build for npm (JavaScript bundle)
-        run: bun run build:npm
 
       - name: Get version from package.json
         id: package-version
