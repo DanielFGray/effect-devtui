@@ -13,7 +13,6 @@ import pkg from "./package.json"
 
 console.log("Building for npm publish...")
 
-await Bun.$`rm -rf dist`
 await Bun.$`mkdir -p dist`
 
 // Build a JavaScript bundle for npm (not a binary)
