@@ -292,8 +292,8 @@ function AppContent() {
         store.ui.layerAnalysisStatus === "complete" &&
         store.ui.layerAnalysisResults
       ) {
-        // Tab to toggle focus between services and candidates panels
-        if (key.name === "tab") {
+        // Tab or left/right arrows to toggle focus between services and candidates panels
+        if (key.name === "tab" || key.name === "left" || key.name === "right") {
           actions.toggleFixTabFocus();
           return;
         }
