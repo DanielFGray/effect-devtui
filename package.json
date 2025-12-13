@@ -1,6 +1,6 @@
 {
   "name": "effect-devtui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Terminal UI for Effect DevTools",
   "keywords": [
     "effect",
@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@effect/experimental": "^0.57.11",
+    "@effect/language-service": "^0.62.1",
     "@effect/platform": "^0.93.6",
     "@effect/platform-bun": "^0.86.0",
     "@effect/platform-node": "^0.103.0",
@@ -54,7 +55,8 @@
     "@types/node": "~24.1.0",
     "@types/react": "^19.0.0",
     "@types/ws": "^8.18.1",
+    "recast": "^0.23.11",
     "tsx": "^4.21.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.9.3"
   }
 }

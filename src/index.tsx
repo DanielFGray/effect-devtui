@@ -1,16 +1,22 @@
 #!/usr/bin/env node
 console.log("[INDEX MODULE] Loading index.tsx");
 import { render, useKeyboard, useRenderer } from "@opentui/solid";
-import { Show, createMemo, onMount, createEffect } from "solid-js";
+import { Show, Match, createMemo, onMount, createEffect } from "solid-js";
 import * as Option from "effect/Option";
-import { PORT } from "./runtime";
-import { StoreProvider, useStore, type FocusedSection } from "./store";
+import { PORT, triggerLayerFix } from "./runtime";
+import {
+  StoreProvider,
+  useStore,
+  type FocusedSection,
+  type ActiveTab,
+} from "./store";
 import { SpanTreeView, SpanDetailsPanel } from "./spanTree";
 import { MetricsView, MetricDetailsPanel } from "./metricsView";
 import { ClientDropdown } from "./clientDropdown";
 import { ResizableBox } from "./resizableBox";
 import { CommandPalette } from "./commandPalette";
 import { SpanFilterInput } from "./spanFilterInput";
+import { FixTab } from "./fixTab";
 import type { ScrollBoxRenderable } from "@opentui/core";
 
 /**
@@ -252,8 +258,107 @@ function AppContent() {
       return;
     }
 
-    // Section cycling with Tab
-    if (key.name === "tab") {
+    // Top-level tab switching with number keys
+    if (key.raw === "1" || key.raw === "o") {
+      actions.setActiveTab("observability");
+      return;
+    }
+    if (key.raw === "2" || key.raw === "f") {
+      actions.setActiveTab("fix");
+      return;
+    }
+
+    // Fix tab specific keyboard handlers
+    if (store.ui.activeTab === "fix") {
+      // Apply fix (when analysis is complete)
+      if (
+        key.name === "p" &&
+        store.ui.layerAnalysisStatus === "complete" &&
+        store.ui.layerAnalysisResults
+      ) {
+        console.log("[App] Applying layer fix with user selections");
+        triggerLayerFix();
+        return;
+      }
+
+      // Analyze/re-analyze
+      if (key.name === "a") {
+        actions.startLayerAnalysis();
+        return;
+      }
+
+      // Navigation within analysis results
+      if (
+        store.ui.layerAnalysisStatus === "complete" &&
+        store.ui.layerAnalysisResults
+      ) {
+        // Tab to toggle focus between services and candidates panels
+        if (key.name === "tab") {
+          actions.toggleFixTabFocus();
+          return;
+        }
+
+        const focusedPanel = store.ui.fixTabFocusedPanel;
+
+        // Navigate services (j/k or up/down) - only when services panel is focused
+        if (focusedPanel === "services") {
+          if (key.name === "j" || key.name === "down") {
+            actions.navigateLayerRequirements("down");
+            return;
+          }
+          if (key.name === "k" || key.name === "up") {
+            actions.navigateLayerRequirements("up");
+            return;
+          }
+        }
+
+        // Navigate layer candidates (j/k or up/down) - only when candidates panel is focused
+        if (focusedPanel === "candidates") {
+          if (key.name === "j" || key.name === "down") {
+            actions.navigateLayerCandidates("down");
+            return;
+          }
+          if (key.name === "k" || key.name === "up") {
+            actions.navigateLayerCandidates("up");
+            return;
+          }
+
+          // Select layer candidate with Enter - only when candidates panel is focused
+          if (key.name === "return" || key.name === "enter") {
+            const results = store.ui.layerAnalysisResults;
+            const candidates = results?.candidates || [];
+            const serviceIndex = store.ui.selectedLayerRequirementIndex;
+            const candidateIndex = store.ui.selectedLayerCandidateIndex;
+
+            if (candidates[serviceIndex]) {
+              const service = candidates[serviceIndex].service;
+              const layers = candidates[serviceIndex].layers;
+              if (layers[candidateIndex]) {
+                const layerName = layers[candidateIndex].name;
+                actions.selectLayerForService(service, layerName);
+                console.log(`[App] Selected ${layerName} for ${service}`);
+              }
+            }
+            return;
+          }
+        }
+      }
+
+      // Clear analysis
+      if (key.name === "c") {
+        actions.clearLayerAnalysis();
+        return;
+      }
+
+      // Re-analyze
+      if (key.name === "r") {
+        actions.startLayerAnalysis();
+        return;
+      }
+    }
+
+    // Observability tab: Section cycling with Tab
+    if (store.ui.activeTab === "observability" && key.name === "tab") {
       const sections: FocusedSection[] = ["clients", "spans", "metrics"];
       const currentIdx = sections.indexOf(store.ui.focusedSection);
       const nextIdx = (currentIdx + 1) % sections.length;
@@ -261,60 +366,62 @@ function AppContent() {
       return;
     }
 
-    // Vim-style navigation (hjkl + arrow keys)
-    if (key.name === "j" || key.name === "down") {
-      actions.navigateDown();
-      return;
-    }
-    if (key.name === "k" || key.name === "up") {
-      actions.navigateUp();
-      return;
-    }
-    if (key.name === "h" || key.name === "left") {
-      actions.navigateLeft();
-      return;
-    }
-    if (key.name === "l" || key.name === "right") {
-      actions.navigateRight();
-      return;
-    }
-
-    // Expand/collapse (only works in spans section)
-    if (key.name === "return" || key.name === "enter" || key.name === "e") {
-      actions.toggleExpand();
-      return;
-    }
-
-    // Clear data
-    if (key.name === "c" && !key.ctrl) {
-      if (store.ui.focusedSection === "spans") {
-        actions.clearSpans();
-      } else if (store.ui.focusedSection === "metrics") {
-        actions.clearMetrics();
+    // Observability tab: Vim-style navigation (hjkl + arrow keys)
+    if (store.ui.activeTab === "observability") {
+      if (key.name === "j" || key.name === "down") {
+        actions.navigateDown();
+        return;
       }
-      return;
-    }
+      if (key.name === "k" || key.name === "up") {
+        actions.navigateUp();
+        return;
+      }
+      if (key.name === "h" || key.name === "left") {
+        actions.navigateLeft();
+        return;
+      }
+      if (key.name === "l" || key.name === "right") {
+        actions.navigateRight();
+        return;
+      }
 
-    // Span filter toggle with "/" key (only when spans section is focused)
-    if (
-      key.raw === "/" &&
-      !key.ctrl &&
-      !key.meta &&
-      store.ui.focusedSection === "spans"
-    ) {
-      actions.toggleSpanFilter();
-      return;
-    }
+      // Expand/collapse (only works in spans section)
+      if (key.name === "return" || key.name === "enter" || key.name === "e") {
+        actions.toggleExpand();
+        return;
+      }
 
-    // Clear active span filter with Escape when not in filter input mode
-    if (
-      key.name === "escape" &&
-      store.ui.focusedSection === "spans" &&
-      store.ui.spanFilterQuery.length > 0 &&
-      !store.ui.showSpanFilter
-    ) {
-      actions.clearSpanFilter();
-      return;
+      // Clear data
+      if (key.name === "c" && !key.ctrl) {
+        if (store.ui.focusedSection === "spans") {
+          actions.clearSpans();
+        } else if (store.ui.focusedSection === "metrics") {
+          actions.clearMetrics();
+        }
+        return;
+      }
+
+      // Span filter toggle with "/" key (only when spans section is focused)
+      if (
+        key.raw === "/" &&
+        !key.ctrl &&
+        !key.meta &&
+        store.ui.focusedSection === "spans"
+      ) {
+        actions.toggleSpanFilter();
+        return;
+      }
+
+      // Clear active span filter with Escape when not in filter input mode
+      if (
+        key.name === "escape" &&
+        store.ui.focusedSection === "spans" &&
+        store.ui.spanFilterQuery.length > 0 &&
+        !store.ui.showSpanFilter
+      ) {
+        actions.clearSpanFilter();
+        return;
+      }
     }
   });
 
@@ -351,13 +458,16 @@ function AppContent() {
         <text style={{ fg: "#7aa2f7" }}>Effect DevTools TUI</text>
       </box>
 
-      {/* Main Content - Stacked Vertical Layout */}
+      {/* Main Content - Two-Tab Layout */}
       <box flexGrow={1} flexDirection="column" backgroundColor="#1a1b26">
         <Show when={store.ui.showHelp}>
           <HelpOverlay />
         </Show>
 
-        <Show when={!store.ui.showHelp}>
+        {/* Observability Tab */}
+        <Show
+          when={store.ui.activeTab === "observability" && !store.ui.showHelp}
+        >
           {/* Clients Section - Compact dropdown */}
           <box
             flexDirection="column"
@@ -539,13 +649,53 @@ function AppContent() {
             </box>
           </box>
         </Show>
+
+        {/* Fix Tab */}
+        <Show when={store.ui.activeTab === "fix" && !store.ui.showHelp}>
+          <FixTab />
+        </Show>
       </box>
 
-      {/* Footer/Status Bar */}
+      {/* Footer/Status Bar - Context-sensitive */}
       <box height={1} width="100%" backgroundColor="#414868" paddingLeft={1}>
-        <text style={{ fg: "#c0caf5" }}>
-          {`${statusText()} | Port: ${PORT} | Clients: ${clientCount()} | Spans: ${spanCount()} | Metrics: ${metricCount()} | [Tab] Focus | [?] Help | [:] Command | [q] Quit`}
-        </text>
+        <Show when={store.ui.activeTab === "observability"}>
+          <text style={{ fg: "#c0caf5" }}>
+            {`${statusText()} | Port: ${PORT} | Clients: ${clientCount()} | Spans: ${spanCount()} | Metrics: ${metricCount()} | [1/2] Tab | [Tab] Focus | [?] Help | [:] Command | [q] Quit`}
+          </text>
+        </Show>
+        <Show when={store.ui.activeTab === "fix"}>
+          <Show
+            when={
+              store.ui.layerAnalysisStatus === "idle" ||
+              store.ui.layerAnalysisStatus === "error" ||
+              (store.ui.layerAnalysisStatus === "complete" &&
+                store.ui.layerAnalysisResults === null)
+            }
+          >
+            <text style={{ fg: "#c0caf5" }}>
+              [a] Analyze | [1/2] Tab | [?] Help | [q] Quit
+            </text>
+          </Show>
+          <Show when={store.ui.layerAnalysisStatus === "analyzing"}>
+            <text style={{ fg: "#c0caf5" }}>Analyzing... | [q] Quit</text>
+          </Show>
+          <Show
+            when={
+              store.ui.layerAnalysisStatus === "complete" &&
+              store.ui.layerAnalysisResults !== null
+            }
+          >
+            <text style={{ fg: "#c0caf5" }}>
+              [Tab] Focus | [j/k] Navigate | [Enter] Select | [c] Clear | [r]
+              Re-analyze | [1/2] Tab | [?] Help
+            </text>
+          </Show>
+          <Show when={store.ui.layerAnalysisStatus === "applied"}>
+            <text style={{ fg: "#c0caf5" }}>
+              [a] Re-analyze | [1/2] Tab | [?] Help | [q] Quit
+            </text>
+          </Show>
+        </Show>
       </box>
 
       {/* Command Palette Overlay */}

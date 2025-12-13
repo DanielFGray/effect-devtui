@@ -19,118 +19,33 @@ import {
 import type * as Domain from "@effect/experimental/DevTools/Domain";
 import type { Client } from "./server";
 import { getCommands, filterCommands } from "./commands";
+import { startRuntime, triggerLayerAnalysis } from "./runtime";
 
-// =============================================================================
-// Types
-// =============================================================================
+// Re-export types from storeTypes
+export type {
+  FocusedSection,
+  ActiveTab,
+  SimpleSpanEvent,
+  SimpleSpan,
+  SimpleMetric,
+  LayerAnalysisResults,
+  UIState,
+  StoreState,
+  StoreActions,
+  StoreContext,
+} from "./storeTypes";
 
-export type FocusedSection = "clients" | "spans" | "metrics";
-
-export interface SimpleSpanEvent {
-  name: string;
-  startTime: bigint; // Time relative to span start
-  attributes: Record<string, unknown>;
-}
-
-export interface SimpleSpan {
-  spanId: string;
-  traceId: string;
-  name: string;
-  parent: string | null;
-  status: "running" | "ended";
-  startTime: bigint;
-  endTime: bigint | null;
-  attributes: Record<string, unknown>;
-  events: SimpleSpanEvent[];
-}
-
-export interface SimpleMetric {
-  name: string;
-  type: "Counter" | "Gauge" | "Histogram" | "Frequency" | "Summary";
-  value: number | string;
-  tags: Record<string, string>;
-  details?: Record<string, number | string>;
-}
-
-export interface UIState {
-  focusedSection: FocusedSection;
-  showHelp: boolean;
-  showCommandPalette: boolean;
-  commandPaletteQuery: string;
-  selectedCommandIndex: number;
-  selectedSpanId: string | null;
-  selectedTraceId: string | null; // For selecting trace groups
-  selectedMetricName: string | null;
-  selectedClientIndex: number; // Index into clients array
-  expandedSpanIds: Set<string>;
-  expandedTraceIds: Set<string>; // For trace grouping
-  clientsExpanded: boolean; // For client dropdown
-  spansHeight: number; // Height of the spans section (for resizing)
-  metricsHeight: number; // Height of the metrics section
-  spanFilterQuery: string; // Filter query for spans
-  showSpanFilter: boolean; // Whether span filter input is visible
-}
-
-export interface StoreState {
-  spans: SimpleSpan[];
-  metrics: SimpleMetric[];
-  clients: Client[];
-  activeClient: Option.Option<Client>;
-  serverStatus: "starting" | "listening" | "connected";
-  ui: UIState;
-  debugCounter: number; // Debug: test if setInterval updates work
-}
-
-export interface StoreActions {
-  // Span actions
-  addSpan: (span: Domain.Span) => void;
-  updateSpan: (span: Domain.Span) => void;
-  addSpanEvent: (event: Domain.SpanEvent) => void;
-  clearSpans: () => void;
-  selectSpan: (spanId: string | null) => void;
-  selectTrace: (traceId: string | null) => void; // New: select trace group
-  toggleSpanExpanded: (spanId: string) => void;
-  toggleTraceExpanded: (traceId: string) => void;
-
-  // Metric actions
-  updateMetrics: (snapshot: Domain.MetricsSnapshot) => void;
-  clearMetrics: () => void;
-  selectMetric: (name: string | null) => void;
-
-  // Client actions
-  setClientsFromHashSet: (clients: HashSet.HashSet<Client>) => void;
-  setActiveClient: (client: Option.Option<Client>) => void;
-  setServerStatus: (status: "starting" | "listening" | "connected") => void;
-  selectClientByIndex: (index: number) => void;
-
-  // UI actions
-  setFocusedSection: (section: FocusedSection) => void;
-  toggleHelp: () => void;
-  toggleCommandPalette: () => void;
-  setCommandPaletteQuery: (query: string) => void;
-  navigateCommandUp: () => void;
-  navigateCommandDown: () => void;
-  executeSelectedCommand: () => void;
-  executeCommand: (commandId: string) => void;
-  expandAllSpans: () => void;
-  collapseAllSpans: () => void;
-  toggleClientsExpanded: () => void;
-  navigateUp: () => void;
-  navigateDown: () => void;
-  navigateLeft: () => void;
-  navigateRight: () => void;
-  toggleExpand: () => void;
-  setSpansHeight: (height: number) => void;
-  setMetricsHeight: (height: number) => void;
-  setSpanFilterQuery: (query: string) => void;
-  toggleSpanFilter: () => void;
-  clearSpanFilter: () => void;
-}
-
-export interface StoreContext {
-  store: StoreState;
-  actions: StoreActions;
-}
+import type {
+  FocusedSection,
+  ActiveTab,
+  SimpleSpan,
+  SimpleSpanEvent,
+  SimpleMetric,
+  LayerAnalysisResults,
+  StoreState,
+  StoreActions,
+  StoreContext,
+} from "./storeTypes";
 
 // =============================================================================
 // Helpers
@@ -270,6 +185,8 @@ export function StoreProvider(props: ParentProps) {
     activeClient: Option.none(),
     serverStatus: "starting",
     ui: {
+      // Tab navigation
+      activeTab: "observability" as const,
       focusedSection: "spans" as const,
       showHelp: false,
       showCommandPalette: false,
@@ -286,6 +203,17 @@ export function StoreProvider(props: ParentProps) {
       metricsHeight: 6,
       spanFilterQuery: "",
       showSpanFilter: false,
+
+      // Layer Analysis
+      fixTabFocusedPanel: "services",
+      selectedLayerRequirementIndex: 0,
+      selectedServiceForCandidates: null,
+      selectedLayerCandidateIndex: 0,
+      layerSelections: new Map(),
+      layerAnalysisStatus: "idle",
+      layerAnalysisResults: null,
+      layerAnalysisError: null,
+      layerAnalysisLogs: [],
     },
     debugCounter: 0,
   });
@@ -582,16 +510,14 @@ export function StoreProvider(props: ParentProps) {
     },
 
     executeCommand: (commandId: string) => {
-      // Import and execute command
-      import("./commands").then(({ getCommands }) => {
-        const commands = getCommands(actions);
-        const command = commands.find((cmd) => cmd.id === commandId);
-        if (command) {
-          command.execute();
-          // Close palette after execution
-          setStore("ui", "showCommandPalette", false);
-        }
-      });
+      // Execute command
+      const commands = getCommands(actions);
+      const command = commands.find((cmd) => cmd.id === commandId);
+      if (command) {
+        command.execute();
+        // Close palette after execution
+        setStore("ui", "showCommandPalette", false);
+      }
     },
 
     navigateCommandUp: () => {
@@ -882,19 +808,181 @@ export function StoreProvider(props: ParentProps) {
     clearSpanFilter: () => {
       setStore("ui", "spanFilterQuery", "");
     },
-  };
 
-  // Export actions globally so Effect runtime can access them
-  globalStoreActions = actions;
+    // Tab navigation actions
+    setActiveTab: (tab: ActiveTab) => {
+      setStore("ui", "activeTab", tab);
+    },
+
+    toggleFixTabFocus: () => {
+      setStore("ui", "fixTabFocusedPanel", (current) =>
+        current === "services" ? "candidates" : "services",
+      );
+    },
+
+    navigateLayerRequirements: (direction: "up" | "down") => {
+      const results = store.ui.layerAnalysisResults;
+      const candidates = results?.candidates || [];
+      if (!results || candidates.length === 0) return;
+
+      const currentIndex = store.ui.selectedLayerRequirementIndex;
+      let newIndex: number;
+
+      if (direction === "up") {
+        newIndex = currentIndex <= 0 ? candidates.length - 1 : currentIndex - 1;
+      } else {
+        newIndex = currentIndex >= candidates.length - 1 ? 0 : currentIndex + 1;
+      }
+
+      // Update all related state in a batch
+      batch(() => {
+        setStore("ui", "selectedLayerRequirementIndex", newIndex);
+        if (candidates[newIndex]) {
+          setStore(
+            "ui",
+            "selectedServiceForCandidates",
+            candidates[newIndex].service,
+          );
+          setStore("ui", "selectedLayerCandidateIndex", 0);
+        }
+      });
+    },
+
+    selectServiceForCandidates: (service: string | null) => {
+      batch(() => {
+        setStore("ui", "selectedServiceForCandidates", service);
+        setStore("ui", "selectedLayerCandidateIndex", 0);
+      });
+    },
+
+    navigateLayerCandidates: (direction: "up" | "down") => {
+      const results = store.ui.layerAnalysisResults;
+      const selectedService = store.ui.selectedServiceForCandidates;
+      if (!results || !results.candidates || !selectedService) {
+        return;
+      }
+
+      const serviceCandidates = results.candidates.find(
+        (c) => c.service === selectedService,
+      );
+      if (!serviceCandidates || serviceCandidates.layers.length === 0) {
+        console.log(
+          "[Store] navigateLayerCandidates: no service candidates found",
+        );
+        return;
+      }
+
+      const currentIndex = store.ui.selectedLayerCandidateIndex;
+      let newIndex: number;
+
+      if (direction === "up") {
+        newIndex =
+          currentIndex <= 0
+            ? serviceCandidates.layers.length - 1
+            : currentIndex - 1;
+      } else {
+        newIndex =
+          currentIndex >= serviceCandidates.layers.length - 1
+            ? 0
+            : currentIndex + 1;
+      }
+
+      setStore("ui", "selectedLayerCandidateIndex", newIndex);
+    },
+
+    selectLayerForService: (service: string, layerName: string) => {
+      setStore(
+        "ui",
+        "layerSelections",
+        produce((selections) => {
+          selections.set(service, layerName);
+        }),
+      );
+    },
+
+    clearLayerAnalysis: () => {
+      batch(() => {
+        setStore("ui", "layerAnalysisStatus", "idle");
+        setStore("ui", "layerAnalysisResults", null);
+        setStore("ui", "layerAnalysisError", null);
+        setStore("ui", "layerAnalysisLogs", []);
+        setStore("ui", "selectedLayerRequirementIndex", 0);
+        setStore("ui", "selectedServiceForCandidates", null);
+        setStore("ui", "selectedLayerCandidateIndex", 0);
+        setStore("ui", "layerSelections", new Map());
+        setStore("ui", "fixTabFocusedPanel", "services");
+      });
+    },
+
+    // Layer Analysis actions
+    startLayerAnalysis: () => {
+      setStore("ui", "activeTab", "fix");
+      setStore("ui", "layerAnalysisStatus", "analyzing");
+      setStore("ui", "layerAnalysisResults", null);
+      setStore("ui", "layerAnalysisError", null);
+      setStore("ui", "layerAnalysisLogs", []);
+      setStore("ui", "selectedLayerRequirementIndex", 0);
+
+      // Trigger analysis via runtime (will be implemented in runtime.ts)
+      triggerLayerAnalysis(process.cwd());
+    },
+
+    setLayerAnalysisStatus: (status) => {
+      setStore("ui", "layerAnalysisStatus", status);
+    },
+
+    setLayerAnalysisResults: (results) => {
+      batch(() => {
+        setStore("ui", "layerAnalysisResults", results);
+
+        // Initialize layer selections with the first (default) layer for each service
+        if (results && results.candidates) {
+          const selections = new Map<string, string>();
+          for (const candidate of results.candidates) {
+            if (candidate.layers.length > 0) {
+              selections.set(candidate.service, candidate.layers[0].name);
+            }
+          }
+          setStore("ui", "layerSelections", selections);
+
+          // Initialize selectedServiceForCandidates to the first service
+          if (results.candidates.length > 0) {
+            setStore(
+              "ui",
+              "selectedServiceForCandidates",
+              results.candidates[0].service,
+            );
+          }
+        }
+      });
+    },
+
+    setLayerAnalysisError: (error) => {
+      setStore("ui", "layerAnalysisError", error);
+    },
+
+    closeLayerAnalyzer: () => {
+      setStore("ui", "activeTab", "observability");
+    },
+
+    addAnalysisLog: (log) => {
+      setStore("ui", "layerAnalysisLogs", (logs) => [...logs, log]);
+    },
+
+    getLayerAnalysisResults: () => {
+      return store.ui.layerAnalysisResults;
+    },
+    getLayerSelections: () => {
+      return store.ui.layerSelections;
+    },
+  };
 
   // Start the Effect runtime AFTER the store is initialized
   // Use onMount to ensure it only runs once when the component mounts
   onMount(() => {
     console.log("[Store] StoreProvider: Starting Effect runtime from onMount");
-    // Import startRuntime here to avoid circular dependency issues
-    import("./runtime").then(({ startRuntime }) => {
-      startRuntime();
-    });
+    // Pass the actions directly to the runtime
+    startRuntime(actions);
   });
 
   const ctx: StoreContext = { store, actions };
@@ -904,14 +992,4 @@ export function StoreProvider(props: ParentProps) {
       {props.children}
     </DevToolsStoreContext.Provider>
   );
-}
-
-// =============================================================================
-// Global Actions Reference (for Effect runtime to call)
-// =============================================================================
-
-let globalStoreActions: StoreActions | null = null;
-
-export function getGlobalActions(): StoreActions | null {
-  return globalStoreActions;
 }
