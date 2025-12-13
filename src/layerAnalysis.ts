@@ -73,7 +73,10 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
     console.log(`Running layer analysis on ${tsconfigPath}`);
 
     // Get the path to layerResolverCli.ts
-    const cliPath = path.resolve(__dirname, "./layerResolverCli.ts");
+    // When running from source: __dirname is src/
+    // When running from npm package: files are at package-root/src/
+    // We try multiple locations to handle both cases
+    const cliPath = yield* findCliPath();
 
     // Use Bun.spawn to run the analyzer with the same bun executable
     // Use process.execPath to get the path to the current bun executable
@@ -340,4 +343,37 @@ const findTsConfig = (startPath: string) =>
     }
 
     return null;
+  });
+
+/**
+ * Find the layerResolverCli.ts script
+ * Searches multiple locations to handle both development and installed package scenarios
+ */
+const findCliPath = () =>
+  Effect.gen(function* () {
+    const candidates = [
+      // Development: running from src directory
+      path.resolve(__dirname, "./layerResolverCli.ts"),
+      // npm package: files included at package-root/src/
+      path.resolve(__dirname, "../src/layerResolverCli.ts"),
+      // Compiled binary: look relative to executable
+      path.resolve(path.dirname(process.execPath), "../src/layerResolverCli.ts"),
+      path.resolve(path.dirname(process.execPath), "../../src/layerResolverCli.ts"),
+    ];
+
+    for (const candidate of candidates) {
+      const exists = yield* Effect.tryPromise({
+        try: () => fs.access(candidate).then(() => true),
+        catch: () => false,
+      });
+
+      if (exists) {
+        console.log(`Found layerResolverCli.ts at ${candidate}`);
+        return candidate;
+      }
+    }
+
+    // Fallback to first candidate and let it fail with a clear error
+    console.log(`layerResolverCli.ts not found in any of: ${candidates.join(", ")}`);
+    return candidates[0];
   });

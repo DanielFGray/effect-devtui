@@ -22,7 +22,9 @@
   "type": "module",
   "files": [
     "dist",
-    "bin"
+    "bin",
+    "src/layerResolverCli.ts",
+    "src/layerResolverCore.ts"
   ],
   "bin": {
     "effect-devtools": "./bin/effect-devtools"
