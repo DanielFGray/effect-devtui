@@ -157,19 +157,7 @@ function AppContent() {
         return;
       }
 
-      // Type to filter (printable characters, backspace, space)
-      if (key.raw && key.raw.length === 1 && !key.ctrl && !key.meta) {
-        actions.setCommandPaletteQuery(store.ui.commandPaletteQuery + key.raw);
-        return;
-      }
-      if (key.name === "backspace") {
-        actions.setCommandPaletteQuery(
-          store.ui.commandPaletteQuery.slice(0, -1),
-        );
-        return;
-      }
-
-      // Prevent other keys from doing anything when palette is open
+      // Let the input component handle all other keys (typing, backspace, etc.)
       return;
     }
 

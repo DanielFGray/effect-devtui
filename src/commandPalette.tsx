@@ -7,12 +7,17 @@ import { For, Show, createMemo, createEffect } from "solid-js";
 import { useStore } from "./store";
 import { getCommands, filterCommands } from "./commands";
 import { useTerminalDimensions } from "@opentui/solid";
-import { RGBA, type ScrollBoxRenderable } from "@opentui/core";
+import {
+  RGBA,
+  type ScrollBoxRenderable,
+  type InputRenderable,
+} from "@opentui/core";
 
 export function CommandPalette() {
   const { store, actions } = useStore();
   const dimensions = useTerminalDimensions();
   let scrollBoxRef: ScrollBoxRenderable | undefined;
+  let inputRef: InputRenderable | undefined;
 
   // Get filtered commands
   const filteredCommands = createMemo(() => {
@@ -74,10 +79,21 @@ export function CommandPalette() {
           </text>
 
           {/* Input field */}
-          <box height={1} marginBottom={1} paddingLeft={2} paddingRight={2}>
-            <text style={{ fg: "#c0caf5" }}>
-              {`> ${store.ui.commandPaletteQuery}_`}
-            </text>
+          <box marginBottom={1} paddingLeft={2} paddingRight={2}>
+            <input
+              ref={(r) => {
+                inputRef = r;
+                setTimeout(() => r.focus(), 1);
+              }}
+              onInput={(value) => actions.setCommandPaletteQuery(value)}
+              placeholder="Search commands..."
+              placeholderColor="#565f89"
+              focusedBackgroundColor="#1a1b26"
+              focusedTextColor="#c0caf5"
+              cursorColor="#7aa2f7"
+              backgroundColor="#1a1b26"
+              textColor="#c0caf5"
+            />
           </box>
 
           {/* Command list */}

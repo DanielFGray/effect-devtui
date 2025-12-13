@@ -131,17 +131,38 @@ const program = Effect.gen(function* () {
       yield* Effect.never;
     }).pipe(Effect.scoped, Effect.ignoreLogged);
 
+  // Track active client fibers to manage their lifecycle
+  const clientFibers = new Map<number, Fiber.RuntimeFiber<void, unknown>>();
+
   // Subscribe to ALL clients and handle each concurrently
   // This ensures we get spans from all connected clients, not just the active one
+  // We track clients by ID to avoid restarting subscriptions when the set changes
   yield* clients.changes.pipe(
-    Stream.flatMap(
-      (clientSet) =>
-        Effect.forEach(Array.from(clientSet), handleClient, {
-          concurrency: "unbounded",
-        }),
-      { switch: true }, // Switch to new set of clients when clientSet changes
+    Stream.runForEach((clientSet) =>
+      Effect.gen(function* () {
+        const currentIds = new Set(Array.from(clientSet).map((c) => c.id));
+
+        // Stop fibers for clients that are no longer present
+        for (const [id, fiber] of clientFibers) {
+          if (!currentIds.has(id)) {
+            console.log(`[Runtime] Client ${id} disconnected, stopping fiber`);
+            yield* Fiber.interrupt(fiber);
+            clientFibers.delete(id);
+          }
+        }
+
+        // Start fibers for new clients
+        for (const client of clientSet) {
+          if (!clientFibers.has(client.id)) {
+            console.log(
+              `[Runtime] New client ${client.name} (${client.id}), starting fiber`,
+            );
+            const fiber = yield* handleClient(client).pipe(Effect.fork);
+            clientFibers.set(client.id, fiber);
+          }
+        }
+      }),
     ),
-    Stream.runDrain,
     Effect.fork,
   );
 
