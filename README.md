@@ -2,7 +2,7 @@
 
 A terminal user interface (TUI) for Effect DevTools. View traces, spans, metrics, and inspect your Effect applications directly from your terminal!
 
-Built with [OpenTUI](https://github.com/sst/opentui) and inspired by the [Effect DevTools VS Code extension](../vscode-extension/), but with a more limited feature set focused on observability rather than debugging.
+Built with [OpenTUI][OpenTUI] and inspired by the [Effect DevTools VS Code extension][Effect DevTools VS Code Extension], but with a more limited feature set focused on observability rather than debugging.
 
 <img width="1056" height="864" alt="20251210" src="https://github.com/user-attachments/assets/acc54df6-77fa-4b5c-b189-6ccba2e0bd14" />
 <img width="957" height="420" alt="Screenshot_20251212_210250" src="https://github.com/user-attachments/assets/cbc0fe98-b27f-4cf1-bbb9-f677cfedb827" />
@@ -100,5 +100,5 @@ This TUI complements the VS Code extension by focusing on **observability and co
 ## Related Projects
 
 - [Effect](https://effect.website/) - The Effect TypeScript framework
-- [OpenTUI](https://github.com/opentui/opentui) - Terminal UI framework
-- [Effect DevTools VS Code Extension](../vscode-extension/) - VS Code version
+- [OpenTUI](https://github.com/sst/opentui) - Terminal UI framework
+- [Effect DevTools VS Code Extension](https://github.com/Effect-TS/vscode-extension/) - VS Code version
