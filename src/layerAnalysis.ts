@@ -1,7 +1,7 @@
 // Layer Analysis Service
-// Spawns layer-resolver-cli as child process and streams results back
+// Uses a Worker thread to run layer analysis without blocking the UI
 
-import { Effect, Stream, Chunk } from "effect";
+import { Effect } from "effect";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { StoreActionsService } from "./storeActionsService";
@@ -49,7 +49,7 @@ export interface AnalysisResult {
 
 /**
  * Run layer analysis on a TypeScript project
- * Spawns the layer-resolver-cli.ts script and streams JSON output
+ * Uses a Worker thread to avoid blocking the UI
  */
 export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
   Effect.gen(function* () {
@@ -72,62 +72,76 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
 
     console.log(`Running layer analysis on ${tsconfigPath}`);
 
-    // Get the path to layerResolverCli.ts
-    // When running from source: __dirname is src/
-    // When running from npm package: files are at package-root/src/
-    // We try multiple locations to handle both cases
-    const cliPath = yield* findCliPath();
-
-    // Use Bun.spawn to run the analyzer with the same bun executable
-    // Use process.execPath to get the path to the current bun executable
-    // This ensures the analyzer works when installed globally or via npx
-    const bunPath = process.execPath;
-    console.log(`Spawning: ${bunPath} run ${cliPath} --json ${tsconfigPath}`);
-
-    // Store process reference for cleanup on interruption
-    let spawnedProc: ReturnType<typeof Bun.spawn> | null = null;
-
-    const output = yield* Effect.tryPromise({
-      try: async () => {
-        const proc = Bun.spawn(
-          [bunPath, "run", cliPath, "--json", tsconfigPath],
-          {
-            stdout: "pipe",
-            stderr: "pipe",
-            cwd: path.dirname(cliPath),
-          },
+    // Run analysis in a Worker thread
+    const result = yield* Effect.async<AnalysisResult, Error>((resume) => {
+      try {
+        const worker = new Worker(
+          new URL("./layerResolverWorker.ts", import.meta.url),
         );
-        spawnedProc = proc;
 
-        // Use Bun's simpler API for reading streams
-        const stdoutPromise = new Response(proc.stdout).text();
-        const stderrPromise = new Response(proc.stderr).text();
-        const exitPromise = proc.exited;
+        const timeout = setTimeout(() => {
+          worker.terminate();
+          resume(
+            Effect.fail(
+              new Error("Layer analysis timed out after 60 seconds"),
+            ),
+          );
+        }, 60000);
 
-        const [stdout, stderr, exitCode] = await Promise.all([
-          stdoutPromise,
-          stderrPromise,
-          exitPromise,
-        ]);
+        worker.onmessage = (event: MessageEvent<AnalysisResult>) => {
+          clearTimeout(timeout);
+          worker.terminate();
+          resume(Effect.succeed(event.data));
+        };
 
-        if (exitCode === 0) {
-          return stdout;
-        } else {
-          throw new Error(`Process exited with code ${exitCode}: ${stderr}`);
-        }
-      },
-      catch: (error) => new Error(String(error)),
+        worker.onerror = (error: ErrorEvent) => {
+          clearTimeout(timeout);
+          worker.terminate();
+          resume(Effect.fail(new Error(error.message)));
+        };
+
+        console.log(`[LayerAnalysis] Posting analysis request for ${tsconfigPath}`);
+        worker.postMessage({ tsconfigPath, projectPath });
+      } catch (error) {
+        resume(Effect.fail(new Error(String(error))));
+      }
+    });
+
+    // Handle the result
+    yield* Effect.gen(function* () {
+      const actions = yield* StoreActionsService;
+
+      if (result.status === "error") {
+        yield* actions.setLayerAnalysisError(result.errors.join("\n"));
+        yield* actions.setLayerAnalysisStatus("error");
+      } else if (result.missing.length === 0) {
+        yield* actions.setLayerAnalysisStatus("complete");
+        yield* actions.setLayerAnalysisResults({
+          missing: [],
+          resolved: [],
+          candidates: result.candidates || [],
+          generatedCode: "",
+          message: "No missing layer requirements found!",
+        });
+      } else {
+        console.log(
+          `[LayerAnalysis] Setting results with ${result.candidates?.length || 0} candidate groups`,
+        );
+        yield* actions.setLayerAnalysisStatus("complete");
+        yield* actions.setLayerAnalysisResults({
+          missing: result.missing,
+          resolved: result.resolved,
+          candidates: result.candidates || [],
+          allLayers: result.allLayers || [],
+          generatedCode: result.generatedCode,
+          targetFile: result.targetFile,
+          targetLine: result.targetLine,
+          stillMissing: result.stillMissing,
+          resolutionOrder: result.resolutionOrder,
+        });
+      }
     }).pipe(
-      Effect.timeout("60 seconds"),
-      Effect.onInterrupt(() =>
-        Effect.sync(() => {
-          if (spawnedProc) {
-            spawnedProc.kill();
-            console.log("[LayerAnalysis] Process killed due to interruption");
-          }
-        }),
-      ),
-      Effect.tapError((error) =>
+      Effect.catchAll((error) =>
         Effect.gen(function* () {
           const actions = yield* StoreActionsService;
           yield* actions.setLayerAnalysisError(`Analysis failed: ${error}`);
@@ -135,57 +149,6 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
         }),
       ),
     );
-
-    yield* Effect.gen(function* () {
-      const actions = yield* StoreActionsService;
-
-      try {
-        // Parse the JSON output
-        const result: AnalysisResult = JSON.parse(output);
-
-        console.log(`[LayerAnalysis] Parsed result:`, {
-          status: result.status,
-          missingCount: result.missing.length,
-          candidatesCount: result.candidates?.length || 0,
-          resolvedCount: result.resolved.length,
-        });
-
-        if (result.status === "error") {
-          yield* actions.setLayerAnalysisError(result.errors.join("\n"));
-          yield* actions.setLayerAnalysisStatus("error");
-        } else if (result.missing.length === 0) {
-          yield* actions.setLayerAnalysisStatus("complete");
-          yield* actions.setLayerAnalysisResults({
-            missing: [],
-            resolved: [],
-            candidates: result.candidates || [],
-            generatedCode: "",
-            message: "No missing layer requirements found!",
-          });
-        } else {
-          console.log(
-            `[LayerAnalysis] Setting results with ${result.candidates?.length || 0} candidate groups`,
-          );
-          yield* actions.setLayerAnalysisStatus("complete");
-          yield* actions.setLayerAnalysisResults({
-            missing: result.missing,
-            resolved: result.resolved,
-            candidates: result.candidates || [],
-            allLayers: result.allLayers || [],
-            generatedCode: result.generatedCode,
-            targetFile: result.targetFile,
-            targetLine: result.targetLine,
-            stillMissing: result.stillMissing,
-            resolutionOrder: result.resolutionOrder,
-          });
-        }
-      } catch (parseError) {
-        yield* actions.setLayerAnalysisError(
-          `Failed to parse analysis output: ${parseError}`,
-        );
-        yield* actions.setLayerAnalysisStatus("error");
-      }
-    });
   });
 
 /**
@@ -343,37 +306,4 @@ const findTsConfig = (startPath: string) =>
     }
 
     return null;
-  });
-
-/**
- * Find the layerResolverCli.ts script
- * Searches multiple locations to handle both development and installed package scenarios
- */
-const findCliPath = () =>
-  Effect.gen(function* () {
-    const candidates = [
-      // Development: running from src directory
-      path.resolve(__dirname, "./layerResolverCli.ts"),
-      // npm package: files included at package-root/src/
-      path.resolve(__dirname, "../src/layerResolverCli.ts"),
-      // Compiled binary: look relative to executable
-      path.resolve(path.dirname(process.execPath), "../src/layerResolverCli.ts"),
-      path.resolve(path.dirname(process.execPath), "../../src/layerResolverCli.ts"),
-    ];
-
-    for (const candidate of candidates) {
-      const exists = yield* Effect.tryPromise({
-        try: () => fs.access(candidate).then(() => true),
-        catch: () => false,
-      });
-
-      if (exists) {
-        console.log(`Found layerResolverCli.ts at ${candidate}`);
-        return candidate;
-      }
-    }
-
-    // Fallback to first candidate and let it fail with a clear error
-    console.log(`layerResolverCli.ts not found in any of: ${candidates.join(", ")}`);
-    return candidates[0];
   });
