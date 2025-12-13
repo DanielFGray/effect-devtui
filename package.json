@@ -13,12 +13,12 @@
   "author": "Daniel F Gray",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DanielFGray/effect-tui.git"
+    "url": "git+https://github.com/DanielFGray/effect-devtui.git"
   },
   "bugs": {
-    "url": "https://github.com/DanielFGray/effect-tui/issues"
+    "url": "https://github.com/DanielFGray/effect-devtui/issues"
   },
-  "homepage": "https://github.com/DanielFGray/effect-tui#readme",
+  "homepage": "https://github.com/DanielFGray/effect-devtui#readme",
   "type": "module",
   "files": [
     "dist/index.js",
