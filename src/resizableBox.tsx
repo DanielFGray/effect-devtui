@@ -22,6 +22,7 @@ export interface ResizableBoxProps {
   onResize: (height: number) => void;
   children: JSX.Element;
   invertDelta?: boolean;
+  handlePosition?: "top" | "bottom";
 }
 
 /**
@@ -109,7 +110,10 @@ class DragHandle extends BoxRenderable {
 }
 
 /**
- * ResizableBox component - renders content with a draggable separator at the bottom
+ * ResizableBox component - renders content with a draggable separator
+ *
+ * Simple approach: uses fixed height (no flexGrow). The parent layout should use
+ * flexGrow on the sibling elements to fill remaining space.
  */
 export function ResizableBox(props: ResizableBoxProps) {
   const renderer = useContext(RendererContext);
@@ -119,12 +123,13 @@ export function ResizableBox(props: ResizableBoxProps) {
 
   const minHeight = props.minHeight ?? 5;
   const maxHeight = props.maxHeight ?? 100;
+  const handlePosition = props.handlePosition ?? "bottom";
 
   const dragHandle = new DragHandle(
     renderer,
     minHeight,
     maxHeight,
-    () => props.height,
+    () => props.height, // Simple: height IS the actual height
     props.onResize,
     props.invertDelta,
   );
@@ -134,18 +139,20 @@ export function ResizableBox(props: ResizableBoxProps) {
   return (
     <box
       flexDirection="column"
-      flexGrow={1}
-      flexShrink={1}
-      flexBasis={props.height}
+      height={props.height} // Fixed height - what you set is what you get
       minHeight={minHeight}
+      flexShrink={0} // Don't shrink below our height
     >
+      {/* Drag handle at top if specified */}
+      {handlePosition === "top" && dragHandle}
+
       {/* Content area */}
       <box flexGrow={1} flexDirection="column">
         {childrenFn()}
       </box>
 
-      {/* Drag handle at bottom */}
-      {dragHandle}
+      {/* Drag handle at bottom if specified */}
+      {handlePosition === "bottom" && dragHandle}
     </box>
   );
 }
