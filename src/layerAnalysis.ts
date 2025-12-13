@@ -75,8 +75,11 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
     // Get the path to layerResolverCli.ts
     const cliPath = path.resolve(__dirname, "./layerResolverCli.ts");
 
-    // Use Bun.spawn to run the analyzer with bun directly
-    console.log(`Spawning: bun run ${cliPath} --json ${tsconfigPath}`);
+    // Use Bun.spawn to run the analyzer with the same bun executable
+    // Use process.execPath to get the path to the current bun executable
+    // This ensures the analyzer works when installed globally or via npx
+    const bunPath = process.execPath;
+    console.log(`Spawning: ${bunPath} run ${cliPath} --json ${tsconfigPath}`);
 
     // Store process reference for cleanup on interruption
     let spawnedProc: ReturnType<typeof Bun.spawn> | null = null;
@@ -84,7 +87,7 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
     const output = yield* Effect.tryPromise({
       try: async () => {
         const proc = Bun.spawn(
-          ["bun", "run", cliPath, "--json", tsconfigPath],
+          [bunPath, "run", cliPath, "--json", tsconfigPath],
           {
             stdout: "pipe",
             stderr: "pipe",
