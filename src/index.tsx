@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-console.log("[INDEX MODULE] Loading index.tsx");
 import { render, useKeyboard, useRenderer } from "@opentui/solid";
 import { Show, Match, createMemo, onMount, createEffect } from "solid-js";
 import * as Option from "effect/Option";
@@ -196,14 +195,10 @@ function AppContent() {
 
     // Quit handlers (after modal input handlers)
     if (key.name === "q" && !key.ctrl) {
-      renderer.stop();
-      process.exit(0);
+      renderer.destroy();
+      return;
     }
-    if (key.raw === "\u0003") {
-      // Ctrl+C
-      renderer.stop();
-      process.exit(0);
-    }
+    // Note: Ctrl+C is handled by OpenTUI's exitOnCtrlC (default: true)
 
     // Help toggle
     if (key.name === "?") {
@@ -704,5 +699,9 @@ function App() {
 render(App, {
   consoleOptions: {
     backgroundColor: "#1a1b26", // Match the main UI background
+  },
+  onDestroy: () => {
+    // Ensure process exits after renderer cleanup
+    process.exit(0);
   },
 });
