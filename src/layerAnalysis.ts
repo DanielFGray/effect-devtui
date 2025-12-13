@@ -1,5 +1,5 @@
 // Layer Analysis Service
-// Uses a Worker thread to run layer analysis without blocking the UI
+// Runs layer analysis synchronously in a deferred context to avoid blocking
 
 import { Effect } from "effect";
 import * as path from "path";
@@ -7,6 +7,10 @@ import * as fs from "fs/promises";
 import { StoreActionsService } from "./storeActionsService";
 import { applyLayerFix, type LayerFix } from "./codemod";
 import {
+  getDiagnostics,
+  findMissingRequirements,
+  createProgram,
+  findLayerDefinitions,
   buildLayerIndex,
   resolveTransitiveDependencies,
   generateLayerCode,
@@ -49,7 +53,7 @@ export interface AnalysisResult {
 
 /**
  * Run layer analysis on a TypeScript project
- * Uses a Worker thread to avoid blocking the UI
+ * Runs analysis synchronously but schedules it to avoid blocking
  */
 export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
   Effect.gen(function* () {
@@ -72,39 +76,22 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
 
     console.log(`Running layer analysis on ${tsconfigPath}`);
 
-    // Run analysis in a Worker thread
-    const result = yield* Effect.async<AnalysisResult, Error>((resume) => {
-      try {
-        const worker = new Worker(
-          new URL("./layerResolverWorker.ts", import.meta.url),
-        );
-
-        const timeout = setTimeout(() => {
-          worker.terminate();
-          resume(
-            Effect.fail(
-              new Error("Layer analysis timed out after 60 seconds"),
-            ),
-          );
-        }, 60000);
-
-        worker.onmessage = (event: MessageEvent<AnalysisResult>) => {
-          clearTimeout(timeout);
-          worker.terminate();
-          resume(Effect.succeed(event.data));
-        };
-
-        worker.onerror = (error: ErrorEvent) => {
-          clearTimeout(timeout);
-          worker.terminate();
-          resume(Effect.fail(new Error(error.message)));
-        };
-
-        console.log(`[LayerAnalysis] Posting analysis request for ${tsconfigPath}`);
-        worker.postMessage({ tsconfigPath, projectPath });
-      } catch (error) {
-        resume(Effect.fail(new Error(String(error))));
-      }
+    // Run analysis in an async context to avoid blocking
+    const result = yield* Effect.tryPromise({
+      try: async () => {
+        return await new Promise<AnalysisResult>((resolve, reject) => {
+          // Schedule the analysis to run asynchronously
+          setImmediate(() => {
+            try {
+              const analysis = performAnalysis(tsconfigPath);
+              resolve(analysis);
+            } catch (error) {
+              reject(error);
+            }
+          });
+        });
+      },
+      catch: (error) => new Error(String(error)),
     });
 
     // Handle the result
@@ -150,6 +137,117 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
       ),
     );
   });
+
+/**
+ * Perform the actual layer analysis
+ * This is called in a deferred async context to allow UI updates
+ */
+function performAnalysis(tsconfigPath: string): AnalysisResult {
+  try {
+    console.log(`[LayerAnalysis] Starting analysis on ${tsconfigPath}`);
+
+    // Get diagnostics
+    const diagnostics = getDiagnostics(tsconfigPath);
+    const missingReqs = findMissingRequirements(diagnostics);
+
+    if (missingReqs.length === 0) {
+      const result: AnalysisResult = {
+        status: "success",
+        missing: [],
+        resolved: [],
+        candidates: [],
+        allLayers: [],
+        generatedCode: "",
+        resolutionOrder: [],
+        stillMissing: [],
+        errors: [],
+        targetFile: null,
+        targetLine: null,
+      };
+      return result;
+    }
+
+    // Find layer definitions
+    const program = createProgram(tsconfigPath);
+    if (!program) {
+      throw new Error("Failed to create TypeScript program");
+    }
+
+    const layers = findLayerDefinitions(program);
+    const layerIndex = buildLayerIndex(layers);
+
+     const allMissing = Array.from(
+      new Set(missingReqs.flatMap((r: any) => r.missingServices)),
+    );
+    const {
+      resolved,
+      missing: stillMissing,
+      order,
+    } = resolveTransitiveDependencies(allMissing, layerIndex);
+
+    const generatedCode = generateLayerCode(resolved, layerIndex);
+
+    // Get target file/line from first missing requirement
+    const targetFile = missingReqs[0]?.file || null;
+    const targetLine = missingReqs[0]?.line || null;
+
+    // Build candidates map: for each missing service, list all available layers
+    const candidates = allMissing.map((service: any) => ({
+      service,
+      layers: (layerIndex.get(service) || []).map((layer: any) => ({
+        name: layer.name,
+        file: layer.file,
+        line: layer.line,
+        requires: layer.requires,
+      })),
+    }));
+
+    const result: AnalysisResult = {
+      status: "success",
+      missing: allMissing as any,
+      resolved: resolved.map((layer: any) => ({
+        service: layer.provides || "",
+        layer: layer.name,
+        file: layer.file,
+        line: layer.line,
+        requires: layer.requires,
+      })),
+      candidates,
+      allLayers: layers.map((layer: any) => ({
+        name: layer.name,
+        provides: layer.provides,
+        file: layer.file,
+        line: layer.line,
+        requires: layer.requires,
+      })),
+      generatedCode,
+      resolutionOrder: order,
+      stillMissing,
+      errors: [],
+      targetFile,
+      targetLine,
+    };
+
+    console.log(`[LayerAnalysis] Analysis complete`);
+    return result;
+  } catch (error) {
+    const result: AnalysisResult = {
+      status: "error",
+      missing: [],
+      resolved: [],
+      candidates: [],
+      allLayers: [],
+      generatedCode: "",
+      resolutionOrder: [],
+      stillMissing: [],
+      errors: [String(error)],
+      targetFile: null,
+      targetLine: null,
+    };
+    console.error(`[LayerAnalysis] Error:`, error);
+    return result;
+  }
+}
 
 /**
  * Apply the suggested layer fix by modifying the source file
