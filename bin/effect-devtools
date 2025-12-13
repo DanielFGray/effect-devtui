@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Entry point for effect-devtools npm package
+// Entry point for effect-devtui npm package
 // Runs the platform-specific compiled binary
 
 import { fileURLToPath } from "url";
@@ -15,7 +15,7 @@ const platform = process.platform === "win32" ? "windows" : process.platform;
 const arch = process.arch;
 const ext = process.platform === "win32" ? ".exe" : "";
 
-const binaryName = `effect-devtools-${platform}-${arch}`;
+const binaryName = `effect-devtui-${platform}-${arch}`;
 const binaryPath = join(__dirname, "..", "dist", binaryName, binaryName + ext);
 
 if (!existsSync(binaryPath)) {

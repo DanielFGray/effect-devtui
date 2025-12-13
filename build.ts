@@ -65,7 +65,7 @@ if (!skipInstall) {
 
 for (const item of targets) {
   const name = [
-    "effect-devtools",
+    "effect-devtui",
     item.os === "win32" ? "windows" : item.os,
     item.arch,
     item.abi === undefined ? undefined : item.abi,
@@ -76,6 +76,16 @@ for (const item of targets) {
   console.log(`Building ${name}`)
   await Bun.$`mkdir -p dist/${name}`
 
+  // Build the bun target string (e.g., bun-linux-x64)
+  const bunTarget = [
+    "bun",
+    item.os === "win32" ? "windows" : item.os,
+    item.arch,
+    item.abi === undefined ? undefined : item.abi,
+  ]
+    .filter(Boolean)
+    .join("-")
+
   await Bun.build({
     conditions: ["browser"],
     tsconfig: "./tsconfig.json",
@@ -84,7 +94,7 @@ for (const item of targets) {
     compile: {
       autoloadBunfig: false,
       autoloadDotenv: false,
-      target: name.replace("effect-devtools", "bun") as any,
+      target: bunTarget as any,
       outfile: `dist/${name}/${name}${item.os === "win32" ? ".exe" : ""}`,
       execArgv: ["--"],
     },
