@@ -1,6 +1,6 @@
 {
   "name": "effect-devtui",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Terminal UI for Effect DevTools",
   "keywords": [
     "effect",
@@ -21,8 +21,7 @@
   "homepage": "https://github.com/DanielFGray/effect-devtui#readme",
   "type": "module",
   "files": [
-    "dist/index.js",
-    "dist/index.js.map",
+    "dist",
     "bin"
   ],
   "bin": {
