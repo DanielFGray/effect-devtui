@@ -1,22 +1,11 @@
 #!/usr/bin/env node
 import { render, useKeyboard, useRenderer } from "@opentui/solid";
-import { Show, Match, createMemo, onMount, createEffect } from "solid-js";
-import * as Option from "effect/Option";
+import { Show, createMemo } from "solid-js";
 import { PORT, triggerLayerFix } from "./runtime";
-import {
-  StoreProvider,
-  useStore,
-  type FocusedSection,
-  type ActiveTab,
-} from "./store";
-import { SpanTreeView, SpanDetailsPanel } from "./spanTree";
-import { MetricsView, MetricDetailsPanel } from "./metricsView";
-import { ClientDropdown } from "./clientDropdown";
-import { ResizableBox } from "./resizableBox";
+import { StoreProvider, useStore, type FocusedSection } from "./store";
 import { CommandPalette } from "./commandPalette";
-import { SpanFilterInput } from "./spanFilterInput";
 import { FixTab } from "./fixTab";
-import type { ScrollBoxRenderable } from "@opentui/core";
+import { ObservabilityTab } from "./observabilityTab";
 
 /**
  * Effect DevTools TUI - Stacked Single-View Layout
@@ -91,44 +80,6 @@ Press any key (except arrows/hjkl) to close...`}
 function AppContent() {
   const renderer = useRenderer();
   const { store, actions } = useStore();
-
-  // Ref for the spans scrollbox to disable its keyboard handling
-  let spansScrollBoxRef: ScrollBoxRenderable | undefined;
-
-  // Disable scrollbox keyboard handling on mount
-  onMount(() => {
-    if (spansScrollBoxRef) {
-      // Access the protected _focusable property to prevent scrollbox from handling keys
-      (spansScrollBoxRef as any)._focusable = false;
-    }
-  });
-
-  // Auto-scroll to keep selected span in view
-  createEffect(() => {
-    const selectedSpanId = store.ui.selectedSpanId;
-    if (!selectedSpanId || !spansScrollBoxRef) return;
-
-    // The span tree is wrapped in a box, so we need to get the children of that box
-    const scrollBoxChildren = spansScrollBoxRef.getChildren();
-    if (scrollBoxChildren.length === 0) return;
-
-    // Get the actual span text elements (children of the first box)
-    const spanElements = scrollBoxChildren[0].getChildren();
-    const target = spanElements.find((child) => child.id === selectedSpanId);
-    if (!target) return;
-
-    // Calculate relative position
-    const y = target.y - spansScrollBoxRef.y;
-
-    // Scroll down if needed
-    if (y >= spansScrollBoxRef.height) {
-      spansScrollBoxRef.scrollBy(y - spansScrollBoxRef.height + 1);
-    }
-    // Scroll up if needed
-    if (y < 0) {
-      spansScrollBoxRef.scrollBy(y);
-    }
-  });
 
   // Setup keyboard handlers
   useKeyboard((key) => {
@@ -423,11 +374,6 @@ function AppContent() {
   const spanCount = createMemo(() => store.spans.length);
   const metricCount = createMemo(() => store.metrics.length);
 
-  // Helper to show section focus indicator
-  const getSectionHeaderColor = (section: FocusedSection) => {
-    return store.ui.focusedSection === section ? "#7aa2f7" : "#565f89";
-  };
-
   return (
     <>
       {/* Header */}
@@ -451,182 +397,7 @@ function AppContent() {
         <Show
           when={store.ui.activeTab === "observability" && !store.ui.showHelp}
         >
-          {/* Clients Section - Compact dropdown */}
-          <box
-            flexDirection="row"
-            paddingLeft={1}
-            paddingRight={1}
-            flexShrink={0}
-            height="auto"
-          >
-            <text style={{ fg: getSectionHeaderColor("clients") }}>
-              {`Clients (${clientCount()})`}
-            </text>
-            <box paddingLeft={2}>
-              <ClientDropdown
-                clients={store.clients}
-                serverStatus={store.serverStatus}
-                selectedClientIndex={store.ui.selectedClientIndex}
-                isExpanded={store.ui.focusedSection === "clients"}
-                onToggleExpanded={actions.toggleClientsExpanded}
-              />
-            </box>
-          </box>
-
-          {/* Separator */}
-          <box
-            height={1}
-            flexShrink={0}
-            border={["bottom"]}
-            borderColor="#30363D"
-          />
-
-          {/* Spans Section - fills remaining space above metrics */}
-          <box
-            flexDirection="column"
-            paddingLeft={1}
-            paddingRight={1}
-            flexGrow={1}
-            minHeight={6}
-          >
-            <text style={{ fg: getSectionHeaderColor("spans") }}>
-              {`Spans (${spanCount()}) - Active: ${store.activeClient
-                .pipe(Option.map((c) => c.name))
-                .pipe(Option.getOrElse(() => "None"))}`}
-            </text>
-
-            {/* Span filter input (shown when typing) */}
-            <Show when={store.ui.showSpanFilter}>
-              <SpanFilterInput />
-            </Show>
-
-            {/* Active filter indicator (shown when filter closed but query active) */}
-            <Show
-              when={
-                !store.ui.showSpanFilter && store.ui.spanFilterQuery.length > 0
-              }
-            >
-              <box
-                flexDirection="row"
-                width="100%"
-                paddingLeft={1}
-                paddingBottom={1}
-                flexShrink={0}
-              >
-                <text style={{ fg: "#f7768e" }}>
-                  {`Filter: "${store.ui.spanFilterQuery}" (press / to edit, Esc to clear)`}
-                </text>
-              </box>
-            </Show>
-
-            {/* Side-by-side: Span list and details */}
-            <box flexDirection="row" flexGrow={1}>
-              {/* Span list - left side */}
-              <scrollbox
-                ref={(r) => (spansScrollBoxRef = r)}
-                width="60%"
-                marginRight={1}
-              >
-                <SpanTreeView
-                  spans={store.spans}
-                  selectedSpanId={store.ui.selectedSpanId}
-                  expandedSpanIds={store.ui.expandedSpanIds}
-                  filterQuery={store.ui.spanFilterQuery || undefined}
-                />
-              </scrollbox>
-
-              {/* Span Details - right side */}
-              <scrollbox
-                width="40%"
-                paddingLeft={1}
-                style={{
-                  rootOptions: {
-                    border: ["left"],
-                    borderColor: "#30363D",
-                  },
-                }}
-              >
-                <Show
-                  when={store.ui.selectedSpanId !== null}
-                  fallback={
-                    <text style={{ fg: "#565f89" }}>
-                      {`Select a span with j/k\nPress → to expand or Enter`}
-                    </text>
-                  }
-                >
-                  <SpanDetailsPanel
-                    spans={store.spans}
-                    spanId={store.ui.selectedSpanId}
-                  />
-                </Show>
-              </scrollbox>
-            </box>
-          </box>
-
-          {/* Metrics Section - Resizable with drag handle at top */}
-          <ResizableBox
-            height={store.ui.metricsHeight}
-            minHeight={6}
-            maxHeight={30}
-            onResize={actions.setMetricsHeight}
-            invertDelta
-            handlePosition="top"
-          >
-            <box
-              flexDirection="column"
-              padding={1}
-              paddingBottom={0}
-              flexGrow={1}
-            >
-              <text
-                style={{ fg: getSectionHeaderColor("metrics") }}
-                marginBottom={1}
-              >
-                {`Metrics (${metricCount()})`}
-              </text>
-
-              {/* Side-by-side: Metrics list and details */}
-              <box flexDirection="row" flexGrow={1}>
-                {/* Metrics list - left side */}
-                <scrollbox
-                  width="60%"
-                  marginRight={1}
-                  focused={store.ui.focusedSection === "metrics"}
-                >
-                  <MetricsView
-                    metrics={store.metrics}
-                    selectedMetricName={store.ui.selectedMetricName}
-                  />
-                </scrollbox>
-
-                {/* Metric Details - right side */}
-                <scrollbox
-                  width="40%"
-                  paddingLeft={1}
-                  style={{
-                    rootOptions: {
-                      border: ["left"],
-                      borderColor: "#30363D",
-                    },
-                  }}
-                >
-                  <Show
-                    when={store.ui.selectedMetricName !== null}
-                    fallback={
-                      <text style={{ fg: "#565f89" }}>
-                        {`Select a metric\nwith j/k`}
-                      </text>
-                    }
-                  >
-                    <MetricDetailsPanel
-                      metrics={store.metrics}
-                      metricName={store.ui.selectedMetricName}
-                    />
-                  </Show>
-                </scrollbox>
-              </box>
-            </box>
-          </ResizableBox>
+          <ObservabilityTab />
         </Show>
 
         {/* Fix Tab */}
