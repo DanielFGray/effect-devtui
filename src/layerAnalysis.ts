@@ -122,6 +122,14 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
         new Error(`Failed to find missing requirements: ${error}`),
     });
 
+    // Step 5: Find layer definitions (always do this, even if no missing requirements)
+    yield* setProgress("finding_layers");
+    const layers = yield* Effect.try({
+      try: () => findLayerDefinitions(program),
+      catch: (error) => new Error(`Failed to find layer definitions: ${error}`),
+    });
+
+    // If no missing requirements, return early but still include layer data for the graph
     if (missingReqs.length === 0) {
       yield* actions.setLayerAnalysisStatus("complete");
       yield* actions.setLayerAnalysisProgress(null);
@@ -129,18 +137,12 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
         missing: [],
         resolved: [],
         candidates: [],
+        allLayers: layers,
         generatedCode: "",
         message: "No missing layer requirements found!",
       });
       return;
     }
-
-    // Step 5: Find layer definitions
-    yield* setProgress("finding_layers");
-    const layers = yield* Effect.try({
-      try: () => findLayerDefinitions(program),
-      catch: (error) => new Error(`Failed to find layer definitions: ${error}`),
-    });
 
     // Step 6: Build layer index
     yield* setProgress("building_index");
@@ -373,6 +375,7 @@ export const applyLayerSuggestion = () =>
 /**
  * Find tsconfig.json in project path
  * Searches current directory and walks up parent directories
+ * If tsconfig.json uses project references with no include, tries common alternatives
  */
 const findTsConfig = (startPath: string) =>
   Effect.gen(function* () {
@@ -389,8 +392,12 @@ const findTsConfig = (startPath: string) =>
       });
 
       if (result) {
-        console.log(`Found tsconfig.json at ${result}`);
-        return result;
+        // Check if this tsconfig uses project references with empty/no include
+        const validConfig = yield* findValidTsConfig(currentPath, result);
+        if (validConfig) {
+          console.log(`Found tsconfig at ${validConfig}`);
+          return validConfig;
+        }
       }
 
       // File doesn't exist, try parent directory
@@ -398,4 +405,80 @@ const findTsConfig = (startPath: string) =>
     }
 
     return null;
+  });
+
+/**
+ * Check if a tsconfig is valid for analysis, or find a better alternative
+ * Handles project references by looking for tsconfig.src.json, tsconfig.build.json, etc.
+ */
+const findValidTsConfig = (projectDir: string, tsconfigPath: string) =>
+  Effect.gen(function* () {
+    const content = yield* Effect.tryPromise({
+      try: () => fs.readFile(tsconfigPath, "utf-8"),
+      catch: () => null,
+    });
+
+    if (!content) return tsconfigPath;
+
+    try {
+      const config = JSON.parse(content);
+
+      // Check if this uses project references with empty or missing include
+      const hasReferences =
+        Array.isArray(config.references) && config.references.length > 0;
+      const hasEmptyInclude =
+        !config.include ||
+        (Array.isArray(config.include) && config.include.length === 0);
+
+      if (hasReferences && hasEmptyInclude) {
+        // Try common alternative tsconfig names
+        const alternatives = [
+          "tsconfig.src.json",
+          "tsconfig.build.json",
+          "tsconfig.app.json",
+          "tsconfig.lib.json",
+        ];
+
+        for (const alt of alternatives) {
+          const altPath = path.join(projectDir, alt);
+          const exists = yield* Effect.tryPromise({
+            try: () => fs.access(altPath).then(() => true),
+            catch: () => false,
+          });
+
+          if (exists) {
+            console.log(
+              `tsconfig.json uses project references, using ${alt} instead`,
+            );
+            return altPath;
+          }
+        }
+
+        // If no alternatives found, try to use the first reference
+        if (config.references[0]?.path) {
+          const refPath = path.join(
+            projectDir,
+            config.references[0].path.replace(/\.json$/, "") + ".json",
+          );
+          const refPathAlt = path.join(projectDir, config.references[0].path);
+
+          for (const rp of [refPath, refPathAlt]) {
+            const exists = yield* Effect.tryPromise({
+              try: () => fs.access(rp).then(() => true),
+              catch: () => false,
+            });
+            if (exists) {
+              console.log(
+                `tsconfig.json uses project references, using ${path.basename(rp)} instead`,
+              );
+              return rp;
+            }
+          }
+        }
+      }
+    } catch {
+      // JSON parse error, just use the original
+    }
+
+    return tsconfigPath;
   });
