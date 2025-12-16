@@ -771,6 +771,28 @@ export function StoreProvider(props: ParentProps) {
       }
     },
 
+    goToFirstSpan: () => {
+      if (store.ui.focusedSection !== "spans") return;
+
+      const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
+      if (visibleItems.length === 0) return;
+
+      const firstItem = visibleItems[0];
+      setStore("ui", "selectedSpanId", firstItem.span.spanId);
+      setStore("ui", "selectedTraceId", null);
+    },
+
+    goToLastSpan: () => {
+      if (store.ui.focusedSection !== "spans") return;
+
+      const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
+      if (visibleItems.length === 0) return;
+
+      const lastItem = visibleItems[visibleItems.length - 1];
+      setStore("ui", "selectedSpanId", lastItem.span.spanId);
+      setStore("ui", "selectedTraceId", null);
+    },
+
     toggleExpand: () => {
       if (store.ui.focusedSection === "spans") {
         // Check if a span is selected

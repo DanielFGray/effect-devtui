@@ -156,6 +156,8 @@ export interface StoreActions {
   navigateDown: () => void;
   navigateLeft: () => void;
   navigateRight: () => void;
+  goToFirstSpan: () => void;
+  goToLastSpan: () => void;
   toggleExpand: () => void;
   setSpansHeight: (height: number) => void;
   setMetricsHeight: (height: number) => void;

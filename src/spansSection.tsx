@@ -81,6 +81,8 @@ export function SpansSection() {
       minHeight={6}
     >
       <text
+        height={1}
+        flexShrink={0}
         style={{ fg: getSectionHeaderColor(store.ui.focusedSection, "spans") }}
       >
         {`Spans (${spanCount()}) - Active: ${activeClientName()}`}
