@@ -36,11 +36,13 @@
     "client": "bun example/client.ts"
   },
   "dependencies": {
+    "@effect/ai": "^0.32.1",
     "@effect/experimental": "^0.57.11",
     "@effect/language-service": "^0.62.1",
     "@effect/platform": "^0.93.6",
     "@effect/platform-bun": "^0.86.0",
     "@effect/platform-node": "^0.103.0",
+    "@effect/rpc": "^0.72.2",
     "@opentui/core": "^0.1.60",
     "@opentui/solid": "^0.1.60",
     "dagre": "^0.8.5",

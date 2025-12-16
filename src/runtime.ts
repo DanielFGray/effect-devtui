@@ -20,9 +20,10 @@ import {
   StoreActionsService,
   makeStoreActionsLayer,
 } from "./storeActionsService";
-import type { StoreActions } from "./storeTypes";
+import type { StoreActions, StoreState } from "./storeTypes";
 import type * as Domain from "@effect/experimental/DevTools/Domain";
 import { runLayerAnalysis, applyLayerSuggestion } from "./layerAnalysis";
+import { runMcpServer, MCP_PORT } from "./mcp/server";
 
 export const PORT = 34437;
 
@@ -212,12 +213,16 @@ const program = Effect.gen(function* () {
 let runtimeStarted = false;
 
 /**
- * Start the Effect runtime with the provided store actions.
+ * Start the Effect runtime with the provided store actions and store getter.
  *
  * The store actions are passed in from the Solid StoreProvider,
  * wrapped in a Layer, and provided to the Effect program.
+ * The store getter provides read-only access to the current store state for MCP tools.
  */
-export function startRuntime(storeActions: StoreActions): void {
+export function startRuntime(
+  storeActions: StoreActions,
+  getStore?: () => StoreState,
+): void {
   if (runtimeStarted) {
     console.log("[Runtime] Runtime already started, skipping");
     return;
@@ -232,8 +237,7 @@ export function startRuntime(storeActions: StoreActions): void {
   // Create the StoreActionsService layer from the real Solid actions
   const StoreActionsLive = makeStoreActionsLayer(storeActions);
   globalStoreActionsLayer = StoreActionsLive;
-
-  // Compose all layers
+  // Compose all layers (no longer includes MCP - it runs separately)
   const MainLive = Layer.mergeAll(
     Layer.provide(ServerContext.Live, WebSocketLive),
     StoreActionsLive,
@@ -244,6 +248,20 @@ export function startRuntime(storeActions: StoreActions): void {
 
   // Run the Effect program (fire and forget)
   Effect.runFork(runnable);
+
+  // Start MCP server on separate port if store getter is provided
+  if (getStore) {
+    console.log(`[Runtime] Starting MCP server on port ${MCP_PORT}`);
+    Effect.runFork(
+      runMcpServer(getStore).pipe(
+        Effect.catchAllCause((cause) =>
+          Effect.sync(() =>
+            console.error("[Runtime] MCP server error:", cause),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /**

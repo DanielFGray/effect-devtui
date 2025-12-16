@@ -1034,8 +1034,8 @@ export function StoreProvider(props: ParentProps) {
   // Use onMount to ensure it only runs once when the component mounts
   onMount(() => {
     console.log("[Store] StoreProvider: Starting Effect runtime from onMount");
-    // Pass the actions directly to the runtime
-    startRuntime(actions);
+    // Pass both actions and a getter function for read-only access to store
+    startRuntime(actions, () => store);
   });
 
   const ctx: StoreContext = { store, actions };
