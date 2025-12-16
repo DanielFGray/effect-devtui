@@ -206,6 +206,8 @@ async function main() {
         file: layer.file,
         line: layer.line,
         requires: layer.requires,
+        composedOf: layer.composedOf,
+        compositionType: layer.compositionType,
       })),
     }));
 
@@ -227,6 +229,8 @@ async function main() {
           file: layer.file,
           line: layer.line,
           requires: layer.requires,
+          composedOf: layer.composedOf,
+          compositionType: layer.compositionType,
         })),
         generatedCode,
         resolutionOrder: order,

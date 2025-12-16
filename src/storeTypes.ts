@@ -43,6 +43,16 @@ export interface SimpleMetric {
   details?: Record<string, number | string>;
 }
 
+/** Common layer info type used across the store */
+export interface LayerInfo {
+  name: string;
+  file: string;
+  line: number;
+  requires: string[];
+  composedOf?: string[];
+  compositionType?: "mergeAll" | "merge" | "provide" | "provideMerge" | "none";
+}
+
 export interface LayerAnalysisResults {
   missing: string[];
   resolved: Array<{
@@ -54,21 +64,14 @@ export interface LayerAnalysisResults {
   }>;
   candidates?: Array<{
     service: string;
-    layers: Array<{
-      name: string;
-      file: string;
-      line: number;
-      requires: string[];
-    }>;
+    layers: Array<LayerInfo>;
   }>;
   /** All layer definitions found in the project (for resolving transitive deps) */
-  allLayers?: Array<{
-    name: string;
-    provides: string | null;
-    file: string;
-    line: number;
-    requires: string[];
-  }>;
+  allLayers?: Array<
+    LayerInfo & {
+      provides: string | null;
+    }
+  >;
   generatedCode: string;
   targetFile?: string | null;
   targetLine?: number | null;
@@ -97,12 +100,12 @@ export interface UIState {
   showSpanFilter: boolean;
 
   // Layer Analysis
-  fixTabFocusedPanel: "services" | "candidates";
+  fixTabFocusedPanel: "graph" | "services" | "candidates";
   selectedLayerRequirementIndex: number;
   selectedServiceForCandidates: string | null;
   selectedLayerCandidateIndex: number;
   layerSelections: Map<string, string>;
-  layerAnalysisStatus: "idle" | "analyzing" | "complete" | "error" | "applied";
+  layerAnalysisStatus: "idle" | "analyzing" | "complete" | "error";
   layerAnalysisResults: LayerAnalysisResults | null;
   layerAnalysisError: string | null;
   layerAnalysisLogs: string[];
@@ -171,6 +174,7 @@ export interface StoreActions {
   // Tab navigation actions
   setActiveTab: (tab: ActiveTab) => void;
   toggleFixTabFocus: () => void;
+  setFixTabFocus: (panel: "graph" | "services" | "candidates") => void;
   navigateLayerRequirements: (direction: "up" | "down") => void;
   selectServiceForCandidates: (service: string | null) => void;
   navigateLayerCandidates: (direction: "up" | "down") => void;
@@ -180,7 +184,7 @@ export interface StoreActions {
   // Layer Analysis actions
   startLayerAnalysis: () => void;
   setLayerAnalysisStatus: (
-    status: "idle" | "analyzing" | "complete" | "error" | "applied",
+    status: "idle" | "analyzing" | "complete" | "error",
   ) => void;
   setLayerAnalysisResults: (results: LayerAnalysisResults | null) => void;
   setLayerAnalysisError: (error: string | null) => void;

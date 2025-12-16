@@ -29,6 +29,7 @@ interface DependencyGraphViewProps {
   layers: LayerDefinition[];
   selectedNode?: string;
   onSelectNode?: (name: string) => void;
+  focused?: boolean;
 }
 
 /**
@@ -38,12 +39,14 @@ function GraphHeader(props: {
   layerCount: number;
   cycleCount: number;
   orphanCount: number;
+  focused?: boolean;
 }) {
   return (
     <box flexDirection="column" marginBottom={1}>
       <box flexDirection="row" gap={2}>
-        <text style={{ fg: COLORS.primary }}>
-          Dependency Graph ({props.layerCount} layers)
+        <text style={{ fg: props.focused ? COLORS.primary : COLORS.muted }}>
+          {props.focused ? "> " : "  "}Dependency Graph ({props.layerCount}{" "}
+          layers)
         </text>
       </box>
 
@@ -141,11 +144,12 @@ export function DependencyGraphView(props: DependencyGraphViewProps) {
         layerCount={props.layers.length}
         cycleCount={cycles().length}
         orphanCount={orphans().length}
+        focused={props.focused}
       />
 
       <GraphLegend />
 
-      <scrollbox flexGrow={1} focused>
+      <scrollbox flexGrow={1} focused={props.focused ?? false}>
         <For each={graphLines()}>
           {(line) => (
             <GraphLine
@@ -165,6 +169,8 @@ export function DependencyGraphView(props: DependencyGraphViewProps) {
  */
 export function DependencyGraphPanel() {
   const { store } = useStore();
+
+  const isFocused = createMemo(() => store.ui.fixTabFocusedPanel === "graph");
 
   const layers = createMemo((): LayerDefinition[] => {
     // Get layers from analysis results if available
@@ -186,6 +192,8 @@ export function DependencyGraphPanel() {
             allLayers.push({
               ...layer,
               provides: candidate.service, // The service this candidate provides
+              composedOf: layer.composedOf ?? [],
+              compositionType: layer.compositionType ?? "none",
             });
           }
         }
@@ -216,7 +224,7 @@ export function DependencyGraphPanel() {
         </box>
       }
     >
-      <DependencyGraphView layers={layers()} />
+      <DependencyGraphView layers={layers()} focused={isFocused()} />
     </Show>
   );
 }

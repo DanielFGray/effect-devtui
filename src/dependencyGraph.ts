@@ -25,6 +25,12 @@ export interface GraphNode {
   height: number;
   isOrphan: boolean;
   isInCycle: boolean;
+  /** Whether this is a container node (composed of other layers) */
+  isContainer: boolean;
+  /** Names of child layers if this is a container */
+  children: string[];
+  /** Type of composition used */
+  compositionType: "mergeAll" | "merge" | "provide" | "provideMerge" | "none";
 }
 
 export interface GraphEdge {
@@ -258,6 +264,7 @@ export function layoutGraph(
     const node = g.node(nodeName);
     if (node) {
       const layerDef = (node as any).layer as LayerDefinition;
+      const isContainer = (layerDef?.composedOf?.length ?? 0) > 0;
       nodes.push({
         id: nodeName,
         label: nodeName,
@@ -271,6 +278,9 @@ export function layoutGraph(
         height: node.height,
         isOrphan: orphanSet.has(nodeName),
         isInCycle: cycleNodes.has(nodeName),
+        isContainer,
+        children: layerDef?.composedOf ?? [],
+        compositionType: layerDef?.compositionType ?? "none",
       });
     }
   }
@@ -332,8 +342,28 @@ function writeString(
   }
 }
 
+// Characters that are part of node boxes and should not be overwritten by edges
+const BOX_CHARS = new Set<string>([
+  BOX.topLeft,
+  BOX.topRight,
+  BOX.bottomLeft,
+  BOX.bottomRight,
+  BOX.leftT,
+  BOX.rightT,
+  BOX.topT,
+  BOX.bottomT,
+  BOX.cross,
+]);
+
 /**
- * Draw a horizontal line
+ * Check if a character is part of a node box (should not be overwritten)
+ */
+function isBoxChar(char: string): boolean {
+  return BOX_CHARS.has(char) || /[A-Za-z0-9…]/.test(char);
+}
+
+/**
+ * Draw a horizontal line, skipping over box characters
  */
 function drawHorizontalLine(
   buffer: string[][],
@@ -347,13 +377,17 @@ function drawHorizontalLine(
   const endX = Math.max(x1, x2);
   for (let x = startX; x <= endX; x++) {
     if (x >= 0 && x < buffer[y].length) {
-      buffer[y][x] = char;
+      const existing = buffer[y][x];
+      // Don't overwrite box characters
+      if (!isBoxChar(existing)) {
+        buffer[y][x] = char;
+      }
     }
   }
 }
 
 /**
- * Draw a vertical line
+ * Draw a vertical line, skipping over box characters
  */
 function drawVerticalLine(
   buffer: string[][],
@@ -366,7 +400,11 @@ function drawVerticalLine(
   const endY = Math.max(y1, y2);
   for (let y = startY; y <= endY; y++) {
     if (y >= 0 && y < buffer.length && x >= 0 && x < buffer[y].length) {
-      buffer[y][x] = char;
+      const existing = buffer[y][x];
+      // Don't overwrite box characters
+      if (!isBoxChar(existing)) {
+        buffer[y][x] = char;
+      }
     }
   }
 }
@@ -409,12 +447,146 @@ function drawBox(
 }
 
 /**
+ * Draw a container box with child boxes inside
+ * Container boxes have a title at the top and nested child boxes below
+ */
+function drawContainerBox(
+  buffer: string[][],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  label: string,
+  children: string[],
+  innerBoxWidth: number,
+  innerBoxHeight: number,
+  nodesByName: Map<string, GraphNode>,
+): void {
+  // Top border with label
+  if (y >= 0 && y < buffer.length) {
+    writeString(buffer, x, y, BOX.topLeft);
+    // Draw label in top border (like a title)
+    const maxLabelLen = width - 4;
+    let displayLabel = label;
+    if (displayLabel.length > maxLabelLen) {
+      displayLabel = displayLabel.substring(0, maxLabelLen - 1) + "…";
+    }
+    const labelStart = x + 2;
+    writeString(buffer, labelStart, y, displayLabel);
+    // Fill rest of top border
+    for (let i = labelStart + displayLabel.length; i < x + width - 1; i++) {
+      if (i >= 0 && i < buffer[y].length && buffer[y][i] === " ") {
+        buffer[y][i] = BOX.horizontal;
+      }
+    }
+    // Fill between corner and label
+    for (let i = x + 1; i < labelStart; i++) {
+      if (i >= 0 && i < buffer[y].length) {
+        buffer[y][i] = BOX.horizontal;
+      }
+    }
+    writeString(buffer, x + width - 1, y, BOX.topRight);
+  }
+
+  // Draw side borders for the full height
+  for (let row = y + 1; row < y + height - 1; row++) {
+    if (row >= 0 && row < buffer.length) {
+      writeString(buffer, x, row, BOX.vertical);
+      writeString(buffer, x + width - 1, row, BOX.vertical);
+    }
+  }
+
+  // Draw child boxes inside the container
+  const childY = y + 1; // Start children right after the title
+  const childrenCount = children.length;
+  const totalChildWidth = childrenCount * (innerBoxWidth + 1) - 1;
+  const childStartX = x + 1 + Math.floor((width - 2 - totalChildWidth) / 2);
+
+  for (let i = 0; i < children.length; i++) {
+    const childName = children[i];
+    const childX = childStartX + i * (innerBoxWidth + 1);
+
+    // Truncate child label
+    const maxChildLabelLen = innerBoxWidth - 4;
+    let childLabel = childName;
+    if (childLabel.length > maxChildLabelLen) {
+      childLabel = childLabel.substring(0, maxChildLabelLen - 1) + "…";
+    }
+
+    // Draw smaller inner box for each child
+    drawInnerBox(
+      buffer,
+      childX,
+      childY,
+      innerBoxWidth,
+      innerBoxHeight,
+      childLabel,
+    );
+  }
+
+  // Bottom border
+  const bottomY = y + height - 1;
+  if (bottomY >= 0 && bottomY < buffer.length) {
+    writeString(buffer, x, bottomY, BOX.bottomLeft);
+    drawHorizontalLine(buffer, x + 1, x + width - 2, bottomY);
+    writeString(buffer, x + width - 1, bottomY, BOX.bottomRight);
+  }
+}
+
+/**
+ * Draw a smaller inner box (used for children inside containers)
+ */
+function drawInnerBox(
+  buffer: string[][],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  label: string,
+): void {
+  // Top border
+  if (y >= 0 && y < buffer.length) {
+    writeString(buffer, x, y, BOX.topLeft);
+    for (let i = x + 1; i < x + width - 1; i++) {
+      if (i >= 0 && i < buffer[y].length) {
+        buffer[y][i] = BOX.horizontal;
+      }
+    }
+    writeString(buffer, x + width - 1, y, BOX.topRight);
+  }
+
+  // Middle with label
+  const midY = y + Math.floor(height / 2);
+  if (midY >= 0 && midY < buffer.length) {
+    writeString(buffer, x, midY, BOX.vertical);
+    const labelStart = x + 1 + Math.floor((width - 2 - label.length) / 2);
+    writeString(buffer, labelStart, midY, label);
+    writeString(buffer, x + width - 1, midY, BOX.vertical);
+  }
+
+  // Bottom border
+  const bottomY = y + height - 1;
+  if (bottomY >= 0 && bottomY < buffer.length) {
+    writeString(buffer, x, bottomY, BOX.bottomLeft);
+    for (let i = x + 1; i < x + width - 1; i++) {
+      if (i >= 0 && i < buffer[bottomY].length) {
+        buffer[bottomY][i] = BOX.horizontal;
+      }
+    }
+    writeString(buffer, x + width - 1, bottomY, BOX.bottomRight);
+  }
+}
+
+/**
  * Render the graph layout to ASCII art
  * Returns an array of lines
  *
  * This uses a grid-based approach where each node gets a fixed cell size,
  * and edges are drawn between cells. Nodes are wrapped to multiple visual
  * rows when they would exceed maxWidth.
+ *
+ * Container nodes (merged layers) are rendered as larger boxes that contain
+ * their child layers visually nested inside.
  */
 export function renderToAscii(
   layout: DependencyGraphLayout,
@@ -431,12 +603,57 @@ export function renderToAscii(
   const CELL_HEIGHT = 5; // Height of each node box + padding for edges
   const BOX_WIDTH = 18; // Actual box width
   const BOX_HEIGHT = 3; // Actual box height (top, middle, bottom)
+  const INNER_BOX_WIDTH = 14; // Width of child boxes inside containers
+  const INNER_BOX_HEIGHT = 3; // Height of child boxes inside containers
 
-  // Calculate how many nodes fit per visual row
-  const nodesPerRow = Math.max(1, Math.floor(maxWidth / CELL_WIDTH));
+  // Identify container nodes and build parent-child relationships
+  const containerNodes = layout.nodes.filter(
+    (n) => n.isContainer && n.children.length > 0,
+  );
+  const childToParent = new Map<string, string>();
+  for (const container of containerNodes) {
+    for (const childName of container.children) {
+      childToParent.set(childName, container.id);
+    }
+  }
 
-  // Sort nodes by y position (rank) then x position
-  const sortedNodes = [...layout.nodes].sort((a, b) => {
+  // Filter out nodes that are children (they'll be rendered inside their container)
+  const topLevelNodes = layout.nodes.filter((n) => !childToParent.has(n.id));
+
+  // Create a lookup for all nodes by name
+  const nodesByName = new Map<string, GraphNode>();
+  for (const node of layout.nodes) {
+    nodesByName.set(node.id, node);
+  }
+
+  // Calculate container dimensions based on number of children
+  const getContainerWidth = (node: GraphNode): number => {
+    if (!node.isContainer || node.children.length === 0) {
+      return BOX_WIDTH;
+    }
+    // Width for children: each child is INNER_BOX_WIDTH + padding
+    const childrenWidth = node.children.length * (INNER_BOX_WIDTH + 2) + 2;
+    return Math.max(BOX_WIDTH, childrenWidth);
+  };
+
+  const getContainerHeight = (node: GraphNode): number => {
+    if (!node.isContainer || node.children.length === 0) {
+      return BOX_HEIGHT;
+    }
+    // Height: title row + padding + child boxes + padding + bottom
+    return INNER_BOX_HEIGHT + 4; // title + children + margins
+  };
+
+  const getContainerCellWidth = (node: GraphNode): number => {
+    return getContainerWidth(node) + 4; // Add padding
+  };
+
+  const getContainerCellHeight = (node: GraphNode): number => {
+    return getContainerHeight(node) + 2; // Add padding for edges
+  };
+
+  // Sort top-level nodes by y position (rank) then x position
+  const sortedNodes = [...topLevelNodes].sort((a, b) => {
     if (Math.abs(a.y - b.y) > 10) return a.y - b.y;
     return a.x - b.x;
   });
@@ -466,6 +683,15 @@ export function renderToAscii(
     rank.sort((a, b) => a.x - b.x);
   }
 
+  // Calculate max container cell width for this layout
+  const maxCellWidth = Math.max(
+    CELL_WIDTH,
+    ...topLevelNodes.map(getContainerCellWidth),
+  );
+
+  // Calculate how many nodes fit per visual row
+  const nodesPerRow = Math.max(1, Math.floor(maxWidth / maxCellWidth));
+
   // Now split ranks into visual rows if they exceed nodesPerRow
   // This handles the case where we have many orphan nodes on one rank
   const visualRows: Array<{ nodes: GraphNode[]; dagreRank: number }> = [];
@@ -480,9 +706,22 @@ export function renderToAscii(
     }
   }
 
+  // Calculate row heights (some rows may have taller container nodes)
+  const rowHeights: number[] = visualRows.map(({ nodes }) =>
+    Math.max(CELL_HEIGHT, ...nodes.map(getContainerCellHeight)),
+  );
+
+  // Calculate cumulative Y positions for each row
+  const rowYPositions: number[] = [];
+  let cumulativeY = 0;
+  for (const height of rowHeights) {
+    rowYPositions.push(cumulativeY);
+    cumulativeY += height;
+  }
+
   // Calculate grid dimensions
-  const gridWidth = Math.min(nodesPerRow * CELL_WIDTH, maxWidth);
-  const gridHeight = visualRows.length * CELL_HEIGHT + 1;
+  const gridWidth = Math.min(nodesPerRow * maxCellWidth, maxWidth);
+  const gridHeight = cumulativeY + 1;
 
   // Create buffer
   const buffer = createBuffer(gridWidth, gridHeight);
@@ -490,73 +729,196 @@ export function renderToAscii(
   // Create a map of node id to grid position
   const nodePositions = new Map<
     string,
-    { col: number; row: number; x: number; y: number; dagreRank: number }
+    {
+      col: number;
+      row: number;
+      x: number;
+      y: number;
+      dagreRank: number;
+      boxHeight: number;
+    }
   >();
+
+  // Track box regions for collision detection when drawing edges
+  // Maps row index to array of {xStart, xEnd} ranges where boxes are drawn
+  const boxRegions = new Map<number, Array<{ xStart: number; xEnd: number }>>();
 
   // Draw nodes row by row
   for (let rowIdx = 0; rowIdx < visualRows.length; rowIdx++) {
     const { nodes, dagreRank } = visualRows[rowIdx];
-    const y = rowIdx * CELL_HEIGHT;
+    const y = rowYPositions[rowIdx];
 
     // Center the row horizontally
-    const totalWidth = nodes.length * CELL_WIDTH;
+    const totalWidth = nodes.length * maxCellWidth;
     const startX = Math.max(0, Math.floor((gridWidth - totalWidth) / 2));
 
     for (let nodeIdx = 0; nodeIdx < nodes.length; nodeIdx++) {
       const node = nodes[nodeIdx];
+      const boxWidth = getContainerWidth(node);
+      const boxHeight = getContainerHeight(node);
       const x =
         startX +
-        nodeIdx * CELL_WIDTH +
-        Math.floor((CELL_WIDTH - BOX_WIDTH) / 2);
+        nodeIdx * maxCellWidth +
+        Math.floor((maxCellWidth - boxWidth) / 2);
 
       // Store position for edge drawing
       nodePositions.set(node.id, {
         col: nodeIdx,
         row: rowIdx,
-        x: x + Math.floor(BOX_WIDTH / 2), // Center x
-        y: y + Math.floor(BOX_HEIGHT / 2), // Center y
+        x: x + Math.floor(boxWidth / 2), // Center x
+        y: y + Math.floor(boxHeight / 2), // Center y
         dagreRank,
+        boxHeight,
       });
 
+      // Also store positions for child nodes (for edge routing purposes)
+      if (node.isContainer && node.children.length > 0) {
+        for (const childName of node.children) {
+          const childNode = nodesByName.get(childName);
+          if (childNode) {
+            // Child position is the same as container for external edge routing
+            nodePositions.set(childName, {
+              col: nodeIdx,
+              row: rowIdx,
+              x: x + Math.floor(boxWidth / 2),
+              y: y + Math.floor(boxHeight / 2),
+              dagreRank,
+              boxHeight,
+            });
+          }
+        }
+      }
+
       // Truncate label if needed
-      const maxLabelLen = BOX_WIDTH - 4;
+      const maxLabelLen = boxWidth - 4;
       let label = node.label;
       if (label.length > maxLabelLen) {
         label = label.substring(0, maxLabelLen - 1) + "…";
       }
 
-      // Draw the box
-      drawBox(buffer, x, y, BOX_WIDTH, BOX_HEIGHT, label);
+      if (node.isContainer && node.children.length > 0) {
+        // Draw container box with children inside
+        drawContainerBox(
+          buffer,
+          x,
+          y,
+          boxWidth,
+          boxHeight,
+          label,
+          node.children,
+          INNER_BOX_WIDTH,
+          INNER_BOX_HEIGHT,
+          nodesByName,
+        );
+      } else {
+        // Draw regular box
+        drawBox(buffer, x, y, boxWidth, boxHeight, label);
+      }
+
+      // Track this box region for edge collision detection
+      // Add a margin to prevent edges from drawing through or immediately adjacent to boxes
+      // The margin accounts for centering differences between rows with different node counts
+      if (!boxRegions.has(rowIdx)) {
+        boxRegions.set(rowIdx, []);
+      }
+      boxRegions.get(rowIdx)!.push({ xStart: x - 4, xEnd: x + boxWidth + 3 });
 
       // Add markers
       if (node.isInCycle) {
         writeString(buffer, x - 1, y, "*");
       }
       if (node.isOrphan) {
-        writeString(buffer, x + BOX_WIDTH, y, "?");
+        writeString(buffer, x + boxWidth, y, "?");
       }
     }
   }
 
   // Draw edges - only draw edges between nodes on different dagre ranks
   // (edges within the same rank are typically not meaningful dependencies)
+
+  // Helper function to check if an X position collides with any box in a given row
+  const xCollidesWithBoxInRow = (x: number, rowIdx: number): boolean => {
+    const regions = boxRegions.get(rowIdx);
+    if (!regions) return false;
+    return regions.some((region) => x >= region.xStart && x <= region.xEnd);
+  };
+
+  // Helper to find which row a Y coordinate belongs to
+  const findRowForY = (
+    yCoord: number,
+  ): { rowIdx: number; rowStartY: number; rowHeight: number } | null => {
+    for (let i = 0; i < rowYPositions.length; i++) {
+      const rowStartY = rowYPositions[i];
+      const rowHeight = rowHeights[i];
+      if (yCoord >= rowStartY && yCoord < rowStartY + rowHeight) {
+        return { rowIdx: i, rowStartY, rowHeight };
+      }
+    }
+    return null;
+  };
+
+  // Helper function to draw a vertical line, skipping Y positions where X collides with a box
+  const drawVerticalLineAvoidingBoxes = (
+    x: number,
+    y1: number,
+    y2: number,
+  ): void => {
+    const startY = Math.min(y1, y2);
+    const endY = Math.max(y1, y2);
+    for (let yCoord = startY; yCoord <= endY; yCoord++) {
+      // Determine which visual row this Y position belongs to
+      const rowInfo = findRowForY(yCoord);
+      if (rowInfo) {
+        const { rowIdx, rowStartY } = rowInfo;
+        const positionInRow = yCoord - rowStartY;
+        const rowBoxHeight = rowHeights[rowIdx] - 2; // Approximate box height for this row
+
+        // Only check for collision if we're in the box area of the row
+        if (positionInRow < rowBoxHeight) {
+          if (xCollidesWithBoxInRow(x, rowIdx)) {
+            // Skip drawing at this position - it would go through a box
+            continue;
+          }
+        }
+      }
+
+      if (
+        yCoord >= 0 &&
+        yCoord < buffer.length &&
+        x >= 0 &&
+        x < buffer[yCoord].length
+      ) {
+        const existing = buffer[yCoord][x];
+        if (!isBoxChar(existing)) {
+          buffer[yCoord][x] = BOX.vertical;
+        }
+      }
+    }
+  };
+
   for (const edge of layout.edges) {
     const fromPos = nodePositions.get(edge.from);
     const toPos = nodePositions.get(edge.to);
 
     if (fromPos && toPos && fromPos.dagreRank !== toPos.dagreRank) {
-      // Calculate connection points
-      const fromY = fromPos.row * CELL_HEIGHT + BOX_HEIGHT; // Bottom of source box
-      const toY = toPos.row * CELL_HEIGHT - 1; // Just above target box
+      // Calculate connection points using dynamic row positions
+      const fromRowY = rowYPositions[fromPos.row] ?? 0;
+      const toRowY = rowYPositions[toPos.row] ?? 0;
+      const fromBoxHeight = fromPos.boxHeight;
+      const toBoxHeight = toPos.boxHeight;
+
+      const fromY = fromRowY + fromBoxHeight; // Bottom of source box
+      const toY = toRowY - 1; // Just above target box
       const fromX = fromPos.x;
       const toX = toPos.x;
 
       if (fromY < toY) {
         // Draw vertical line down from source
+        // Calculate midY as the midpoint between source bottom and target top
         const midY = Math.floor((fromY + toY) / 2);
 
         // From bottom of source, go down
-        drawVerticalLine(buffer, fromX, fromY, midY);
+        drawVerticalLineAvoidingBoxes(fromX, fromY, midY);
 
         // If horizontal offset needed, draw horizontal segment
         if (fromX !== toX) {
@@ -577,7 +939,7 @@ export function renderToAscii(
         }
 
         // Go down to target
-        drawVerticalLine(buffer, toX, midY, toY);
+        drawVerticalLineAvoidingBoxes(toX, midY, toY);
 
         // Draw arrow pointing to target
         if (

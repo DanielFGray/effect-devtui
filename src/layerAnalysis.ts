@@ -60,7 +60,7 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
     const actions = yield* StoreActionsService;
 
     yield* actions.setLayerAnalysisStatus("analyzing");
-    yield* actions.setLayerAnalysisResults(null);
+    // Keep previous results while re-analyzing so graph persists
     yield* actions.setLayerAnalysisError(null);
 
     // Find tsconfig.json in project path
@@ -176,7 +176,7 @@ function performAnalysis(tsconfigPath: string): AnalysisResult {
     const layers = findLayerDefinitions(program);
     const layerIndex = buildLayerIndex(layers);
 
-     const allMissing = Array.from(
+    const allMissing = Array.from(
       new Set(missingReqs.flatMap((r: any) => r.missingServices)),
     );
     const {
@@ -199,6 +199,8 @@ function performAnalysis(tsconfigPath: string): AnalysisResult {
         file: layer.file,
         line: layer.line,
         requires: layer.requires,
+        composedOf: layer.composedOf,
+        compositionType: layer.compositionType,
       })),
     }));
 
@@ -219,6 +221,8 @@ function performAnalysis(tsconfigPath: string): AnalysisResult {
         file: layer.file,
         line: layer.line,
         requires: layer.requires,
+        composedOf: layer.composedOf,
+        compositionType: layer.compositionType,
       })),
       generatedCode,
       resolutionOrder: order,
@@ -284,6 +288,17 @@ export const applyLayerSuggestion = () =>
     console.log("[LayerAnalysis] Getting user selections from store");
     const selections = yield* actions.getLayerSelections();
 
+    // Only apply fixes for services that have explicit selections
+    const selectedServices = Array.from(selections.keys());
+
+    if (selectedServices.length === 0) {
+      console.log("[LayerAnalysis] No layers selected - nothing to apply");
+      yield* actions.addAnalysisLog(
+        "⚠️ No layers selected. Select layers for services you want to fix.",
+      );
+      return;
+    }
+
     console.log(
       `[LayerAnalysis] Applying layer fix to ${results.targetFile}:${results.targetLine}`,
     );
@@ -325,9 +340,9 @@ export const applyLayerSuggestion = () =>
 
       const layerIndex = buildLayerIndex(layersForIndex);
 
-      // Resolve with user selections
+      // Resolve only the services that have explicit selections (plus their transitive deps)
       const { resolved } = resolveTransitiveDependencies(
-        results.missing,
+        selectedServices,
         layerIndex,
         selections,
       );
@@ -356,13 +371,15 @@ export const applyLayerSuggestion = () =>
           }
 
           if (codemodResult.success) {
-            yield* actions.setLayerAnalysisStatus("applied");
             yield* actions.addAnalysisLog(
               `✅ Successfully modified ${codemodResult.modifiedFile}`,
             );
             for (const change of codemodResult.changes) {
               yield* actions.addAnalysisLog(`  - ${change}`);
             }
+
+            // Re-analyze to show remaining missing services
+            yield* runLayerAnalysis(path.dirname(codemodResult.modifiedFile));
           } else {
             yield* actions.setLayerAnalysisError(
               `Failed to apply fix:\n${codemodResult.errors.join("\n")}`,

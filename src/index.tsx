@@ -214,14 +214,12 @@ function AppContent() {
         return;
       }
 
-      // Apply fix (when analysis is complete and not in graph view)
+      // Apply fix (when analysis is complete)
       if (
         key.name === "p" &&
         store.ui.layerAnalysisStatus === "complete" &&
-        store.ui.layerAnalysisResults &&
-        !store.ui.showDependencyGraph
+        store.ui.layerAnalysisResults
       ) {
-        console.log("[App] Applying layer fix with user selections");
         triggerLayerFix();
         return;
       }
@@ -237,13 +235,39 @@ function AppContent() {
         store.ui.layerAnalysisStatus === "complete" &&
         store.ui.layerAnalysisResults
       ) {
-        // Tab or left/right arrows to toggle focus between services and candidates panels
-        if (key.name === "tab" || key.name === "left" || key.name === "right") {
+        // Tab cycles focus between graph (when visible), services, and candidates
+        if (key.name === "tab") {
           actions.toggleFixTabFocus();
           return;
         }
 
         const focusedPanel = store.ui.fixTabFocusedPanel;
+
+        // When graph is focused, let the scrollbox handle arrow/hjkl keys
+        // (don't capture them here - they'll scroll the graph)
+        if (focusedPanel === "graph") {
+          // Only handle left/right to quickly jump to service picker
+          if (key.name === "left" || key.name === "right") {
+            actions.toggleFixTabFocus(); // Jump to services
+            return;
+          }
+          // Let other keys (j/k/arrows) fall through to scrollbox
+          return;
+        }
+
+        // Left/right arrows (or h/l) switch between services and candidates panels directly
+        if (key.name === "left" || key.name === "h") {
+          if (focusedPanel === "candidates") {
+            actions.setFixTabFocus("services");
+          }
+          return;
+        }
+        if (key.name === "right" || key.name === "l") {
+          if (focusedPanel === "services") {
+            actions.setFixTabFocus("candidates");
+          }
+          return;
+        }
 
         // Navigate services (j/k or up/down) - only when services panel is focused
         if (focusedPanel === "services") {
@@ -443,29 +467,13 @@ function AppContent() {
           <Show
             when={
               store.ui.layerAnalysisStatus === "complete" &&
-              store.ui.layerAnalysisResults !== null &&
-              !store.ui.showDependencyGraph
+              store.ui.layerAnalysisResults !== null
             }
           >
             <text style={{ fg: "#c0caf5" }}>
-              [Tab] Focus | [j/k] Nav | [Enter] Select | [g] Graph | [p] Apply |
-              [c] Clear | [?] Help
-            </text>
-          </Show>
-          <Show
-            when={
-              store.ui.layerAnalysisStatus === "complete" &&
-              store.ui.layerAnalysisResults !== null &&
-              store.ui.showDependencyGraph
-            }
-          >
-            <text style={{ fg: "#c0caf5" }}>
-              [g] Close graph | [?] Help | [q] Quit
-            </text>
-          </Show>
-          <Show when={store.ui.layerAnalysisStatus === "applied"}>
-            <text style={{ fg: "#c0caf5" }}>
-              [a] Re-analyze | [1/2] Tab | [?] Help | [q] Quit
+              [Tab] Focus | [j/k] Nav | [Enter] Select | [g]{" "}
+              {store.ui.showDependencyGraph ? "Hide" : "Show"} Graph | [p] Apply
+              | [c] Clear | [?] Help
             </text>
           </Show>
         </Show>

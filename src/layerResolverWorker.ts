@@ -114,6 +114,8 @@ self.onmessage = (event: MessageEvent<AnalysisRequest>) => {
         file: layer.file,
         line: layer.line,
         requires: layer.requires,
+        composedOf: layer.composedOf,
+        compositionType: layer.compositionType,
       })),
     }));
 
@@ -134,6 +136,8 @@ self.onmessage = (event: MessageEvent<AnalysisRequest>) => {
         file: layer.file,
         line: layer.line,
         requires: layer.requires,
+        composedOf: layer.composedOf,
+        compositionType: layer.compositionType,
       })),
       generatedCode,
       resolutionOrder: order,

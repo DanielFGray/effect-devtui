@@ -216,7 +216,7 @@ export function StoreProvider(props: ParentProps) {
       layerAnalysisLogs: [],
 
       // Dependency Graph
-      showDependencyGraph: false,
+      showDependencyGraph: true,
     },
     debugCounter: 0,
   });
@@ -837,12 +837,39 @@ export function StoreProvider(props: ParentProps) {
     // Tab navigation actions
     setActiveTab: (tab: ActiveTab) => {
       setStore("ui", "activeTab", tab);
+      // Auto-trigger analysis when switching to fix tab with no data
+      if (
+        tab === "fix" &&
+        store.ui.layerAnalysisResults === null &&
+        store.ui.layerAnalysisStatus !== "analyzing"
+      ) {
+        // Trigger analysis after a small delay to let the UI render first
+        setTimeout(() => {
+          setStore("ui", "layerAnalysisStatus", "analyzing");
+          setStore("ui", "layerAnalysisError", null);
+          setStore("ui", "layerAnalysisLogs", []);
+          triggerLayerAnalysis(process.cwd());
+        }, 100);
+      }
     },
 
     toggleFixTabFocus: () => {
-      setStore("ui", "fixTabFocusedPanel", (current) =>
-        current === "services" ? "candidates" : "services",
-      );
+      const showGraph = store.ui.showDependencyGraph;
+      setStore("ui", "fixTabFocusedPanel", (current) => {
+        if (showGraph) {
+          // Cycle: graph -> services -> candidates -> graph
+          if (current === "graph") return "services";
+          if (current === "services") return "candidates";
+          return "graph";
+        } else {
+          // Cycle: services -> candidates -> services
+          return current === "services" ? "candidates" : "services";
+        }
+      });
+    },
+
+    setFixTabFocus: (panel: "graph" | "services" | "candidates") => {
+      setStore("ui", "fixTabFocusedPanel", panel);
     },
 
     navigateLayerRequirements: (direction: "up" | "down") => {
@@ -916,13 +943,9 @@ export function StoreProvider(props: ParentProps) {
     },
 
     selectLayerForService: (service: string, layerName: string) => {
-      setStore(
-        "ui",
-        "layerSelections",
-        produce((selections) => {
-          selections.set(service, layerName);
-        }),
-      );
+      const newSelections = new Map(store.ui.layerSelections);
+      newSelections.set(service, layerName);
+      setStore("ui", "layerSelections", newSelections);
     },
 
     clearLayerAnalysis: () => {
@@ -943,7 +966,8 @@ export function StoreProvider(props: ParentProps) {
     startLayerAnalysis: () => {
       setStore("ui", "activeTab", "fix");
       setStore("ui", "layerAnalysisStatus", "analyzing");
-      setStore("ui", "layerAnalysisResults", null);
+      // Keep previous results while re-analyzing so graph can persist
+      // Results will be replaced when new analysis completes
       setStore("ui", "layerAnalysisError", null);
       setStore("ui", "layerAnalysisLogs", []);
       setStore("ui", "selectedLayerRequirementIndex", 0);
@@ -960,24 +984,16 @@ export function StoreProvider(props: ParentProps) {
       batch(() => {
         setStore("ui", "layerAnalysisResults", results);
 
-        // Initialize layer selections with the first (default) layer for each service
-        if (results && results.candidates) {
-          const selections = new Map<string, string>();
-          for (const candidate of results.candidates) {
-            if (candidate.layers.length > 0) {
-              selections.set(candidate.service, candidate.layers[0].name);
-            }
-          }
-          setStore("ui", "layerSelections", selections);
+        // Clear any previous layer selections - user must explicitly choose
+        setStore("ui", "layerSelections", new Map());
 
-          // Initialize selectedServiceForCandidates to the first service
-          if (results.candidates.length > 0) {
-            setStore(
-              "ui",
-              "selectedServiceForCandidates",
-              results.candidates[0].service,
-            );
-          }
+        // Initialize selectedServiceForCandidates to the first service
+        if (results && results.candidates && results.candidates.length > 0) {
+          setStore(
+            "ui",
+            "selectedServiceForCandidates",
+            results.candidates[0].service,
+          );
         }
       });
     },
@@ -1003,7 +1019,14 @@ export function StoreProvider(props: ParentProps) {
 
     // Dependency Graph actions
     toggleDependencyGraph: () => {
+      const wasShowing = store.ui.showDependencyGraph;
       setStore("ui", "showDependencyGraph", (prev) => !prev);
+      // When showing graph, focus it; when hiding, focus services
+      if (!wasShowing) {
+        setStore("ui", "fixTabFocusedPanel", "graph");
+      } else if (store.ui.fixTabFocusedPanel === "graph") {
+        setStore("ui", "fixTabFocusedPanel", "services");
+      }
     },
   };
 

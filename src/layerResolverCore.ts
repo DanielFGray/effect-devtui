@@ -24,6 +24,10 @@ export interface LayerDefinition {
   line: number;
   provides: string | null;
   requires: string[];
+  /** Names of child layers if this is a composed layer (e.g., Layer.mergeAll, Layer.provide) */
+  composedOf: string[];
+  /** Type of composition used to create this layer */
+  compositionType: "mergeAll" | "merge" | "provide" | "provideMerge" | "none";
 }
 
 export interface RunPromiseCall {
@@ -167,12 +171,20 @@ export function findLayerDefinitions(program: ts.Program): LayerDefinition[] {
             ? extractUnionMembers(typeArgs[2], checker)
             : [];
 
+          // Extract composition information (for merged/provided layers)
+          const { composedOf, compositionType } = extractCompositionInfo(
+            node.initializer,
+            sourceFile,
+          );
+
           layers.push({
             name,
             file: sourceFile.fileName,
             line: line + 1,
             provides,
             requires,
+            composedOf,
+            compositionType,
           });
         }
       }
@@ -196,6 +208,100 @@ function isLayerType(type: ts.Type): boolean {
   // Fallback to string check for edge cases
   const typeString = type.getSymbol()?.getName() || "";
   return typeString === "Layer";
+}
+
+/**
+ * Extract composition information from a layer initializer expression
+ * Detects patterns like:
+ * - Layer.mergeAll(A, B, C)
+ * - Layer.merge(A, B)
+ * - Layer.provide(A, B) or A.pipe(Layer.provide(B))
+ * - Layer.provideMerge(A, B)
+ */
+function extractCompositionInfo(
+  initializer: ts.Expression,
+  sourceFile: ts.SourceFile,
+): {
+  composedOf: string[];
+  compositionType: LayerDefinition["compositionType"];
+} {
+  const composedOf: string[] = [];
+  let compositionType: LayerDefinition["compositionType"] = "none";
+
+  // Helper to extract identifier name from an expression
+  const getExpressionName = (expr: ts.Expression): string | null => {
+    if (ts.isIdentifier(expr)) {
+      return expr.text;
+    }
+    if (ts.isPropertyAccessExpression(expr)) {
+      // Handle cases like Module.LayerName
+      return expr.getText(sourceFile);
+    }
+    return null;
+  };
+
+  // Helper to check if a call is a Layer.X method
+  const getLayerMethodName = (expr: ts.Expression): string | null => {
+    if (ts.isPropertyAccessExpression(expr)) {
+      const obj = expr.expression;
+      const method = expr.name.text;
+      if (ts.isIdentifier(obj) && obj.text === "Layer") {
+        return method;
+      }
+    }
+    return null;
+  };
+
+  // Check for direct Layer.mergeAll/merge/provide calls
+  if (ts.isCallExpression(initializer)) {
+    const methodName = getLayerMethodName(initializer.expression);
+
+    if (methodName === "mergeAll" || methodName === "merge") {
+      compositionType = methodName;
+      for (const arg of initializer.arguments) {
+        const name = getExpressionName(arg);
+        if (name) composedOf.push(name);
+      }
+    } else if (methodName === "provide" || methodName === "provideMerge") {
+      compositionType = methodName;
+      // Layer.provide(layerToProvide, providerLayer)
+      for (const arg of initializer.arguments) {
+        const name = getExpressionName(arg);
+        if (name) composedOf.push(name);
+      }
+    }
+  }
+
+  // Check for pipe pattern: A.pipe(Layer.provide(B))
+  if (ts.isCallExpression(initializer)) {
+    const expr = initializer.expression;
+    if (ts.isPropertyAccessExpression(expr) && expr.name.text === "pipe") {
+      // Get the subject of the pipe (A in A.pipe(...))
+      const subject = expr.expression;
+      const subjectName = getExpressionName(subject);
+
+      // Look through pipe arguments for Layer.provide/provideMerge calls
+      for (const arg of initializer.arguments) {
+        if (ts.isCallExpression(arg)) {
+          const pipeMethodName = getLayerMethodName(arg.expression);
+          if (
+            pipeMethodName === "provide" ||
+            pipeMethodName === "provideMerge"
+          ) {
+            compositionType = pipeMethodName;
+            if (subjectName) composedOf.push(subjectName);
+            // Add the provider layer(s) from the Layer.provide call
+            for (const providerArg of arg.arguments) {
+              const providerName = getExpressionName(providerArg);
+              if (providerName) composedOf.push(providerName);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return { composedOf, compositionType };
 }
 
 /**

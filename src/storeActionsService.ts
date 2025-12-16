@@ -38,7 +38,7 @@ export interface StoreActionsService {
 
   // Layer Analysis actions
   readonly setLayerAnalysisStatus: (
-    status: "idle" | "analyzing" | "complete" | "error" | "applied",
+    status: "idle" | "analyzing" | "complete" | "error",
   ) => Effect.Effect<void>;
   readonly setLayerAnalysisResults: (
     results: LayerAnalysisResults | null,
@@ -113,7 +113,7 @@ export const makeStoreActionsLayer = (
       }),
 
     setLayerAnalysisStatus: (
-      status: "idle" | "analyzing" | "complete" | "error" | "applied",
+      status: "idle" | "analyzing" | "complete" | "error",
     ) =>
       Effect.sync(() => {
         actions.setLayerAnalysisStatus(status);
@@ -155,12 +155,7 @@ export interface MockStoreActionsState {
   readonly clients: unknown[];
   readonly activeClient: unknown;
   readonly serverStatus: "starting" | "listening" | "connected";
-  readonly layerAnalysisStatus:
-    | "idle"
-    | "analyzing"
-    | "complete"
-    | "error"
-    | "applied";
+  readonly layerAnalysisStatus: "idle" | "analyzing" | "complete" | "error";
   readonly layerAnalysisResults: LayerAnalysisResults | null;
   readonly layerAnalysisError: string | null;
   readonly analysisLogs: string[];
@@ -210,7 +205,7 @@ export const makeMockStoreActionsLayer = Effect.gen(function* () {
       Ref.update(stateRef, (s) => ({ ...s, serverStatus: status })),
 
     setLayerAnalysisStatus: (
-      status: "idle" | "analyzing" | "complete" | "error" | "applied",
+      status: "idle" | "analyzing" | "complete" | "error",
     ) => Ref.update(stateRef, (s) => ({ ...s, layerAnalysisStatus: status })),
     setLayerAnalysisResults: (results: LayerAnalysisResults | null) =>
       Ref.update(stateRef, (s) => ({ ...s, layerAnalysisResults: results })),

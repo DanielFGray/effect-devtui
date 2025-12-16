@@ -24,22 +24,22 @@ export function FixTab() {
   const { store } = useStore();
 
   const showGraph = createMemo(() => store.ui.showDependencyGraph);
-  const hasResults = createMemo(
-    () =>
-      store.ui.layerAnalysisStatus === "complete" &&
-      store.ui.layerAnalysisResults !== null,
+  const hasPreviousResults = createMemo(
+    () => store.ui.layerAnalysisResults !== null,
   );
 
-  // Show status view for non-results states
+  // Show status view only when we have NO previous results to display
+  // (first-time analysis, idle state, or error without cached results)
   const showStatusView = createMemo(
     () =>
-      store.ui.layerAnalysisStatus === "idle" ||
-      store.ui.layerAnalysisStatus === "analyzing" ||
-      store.ui.layerAnalysisStatus === "error" ||
-      (store.ui.layerAnalysisStatus === "complete" &&
-        store.ui.layerAnalysisResults === null) ||
-      store.ui.layerAnalysisStatus === "applied",
+      !hasPreviousResults() &&
+      (store.ui.layerAnalysisStatus === "idle" ||
+        store.ui.layerAnalysisStatus === "analyzing" ||
+        store.ui.layerAnalysisStatus === "error"),
   );
+
+  // Show results view when we have results (even if re-analyzing)
+  const showResultsView = createMemo(() => hasPreviousResults());
 
   return (
     <box
@@ -54,7 +54,7 @@ export function FixTab() {
       </Show>
 
       {/* Results view: graph + service panels */}
-      <Show when={hasResults()}>
+      <Show when={showResultsView()}>
         <box flexGrow={1} flexDirection="column" width="100%">
           {/* Graph view (toggleable) */}
           <Show when={showGraph()}>

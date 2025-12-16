@@ -178,25 +178,60 @@ export function applyLayerFix(fix: LayerFix): CodemodResult {
 
     // Determine what we need to do
     if (existingAppLayerDecl) {
-      // Case 2: Update existing AppLayer
-      log("[Codemod] Case 2: Updating existing AppLayer");
-
-      // Use the generated code directly - it already includes proper layer composition
-      // with Layer.provideMerge for dependent layers
-      log("[Codemod] Using generated layer code:", fix.generatedCode);
+      // Case 2: Merge new layers into existing AppLayer
+      log("[Codemod] Case 2: Merging into existing AppLayer");
+      log("[Codemod] Existing layers:", existingLayerNames);
+      log("[Codemod] New layers:", fix.layerNames);
 
       // Parse the generated layer code to get its AST
       const layerExprAST = recast.parse(`(${fix.generatedCode})`, {
         parser: typescriptParser,
       });
-      const layerExpr = layerExprAST.program.body[0].expression;
+      const newLayerExpr = layerExprAST.program.body[0].expression;
 
-      // Update the existing declaration with the new expression
       const decl = existingAppLayerDecl.node.declarations[0];
-      decl.init = layerExpr;
+
+      // If existing is already Layer.mergeAll, add new layers to its arguments
+      // Otherwise, wrap both in a new Layer.mergeAll
+      if (
+        n.CallExpression.check(decl.init) &&
+        n.MemberExpression.check(decl.init.callee) &&
+        n.Identifier.check(decl.init.callee.object) &&
+        decl.init.callee.object.name === "Layer" &&
+        n.Identifier.check(decl.init.callee.property) &&
+        decl.init.callee.property.name === "mergeAll"
+      ) {
+        // Extract arguments from new expression if it's also Layer.mergeAll, otherwise add directly
+        if (
+          n.CallExpression.check(newLayerExpr) &&
+          n.MemberExpression.check(newLayerExpr.callee) &&
+          n.Identifier.check(newLayerExpr.callee.object) &&
+          newLayerExpr.callee.object.name === "Layer" &&
+          n.Identifier.check(newLayerExpr.callee.property) &&
+          newLayerExpr.callee.property.name === "mergeAll"
+        ) {
+          // Flatten: add each argument from the new Layer.mergeAll
+          for (const arg of newLayerExpr.arguments) {
+            decl.init.arguments.push(arg);
+          }
+          log("[Codemod] Flattened and appended Layer.mergeAll arguments");
+        } else {
+          // Add the expression directly
+          decl.init.arguments.push(newLayerExpr);
+          log("[Codemod] Appended to existing Layer.mergeAll");
+        }
+      } else {
+        // Wrap existing and new in Layer.mergeAll
+        const mergedExpr = b.callExpression(
+          b.memberExpression(b.identifier("Layer"), b.identifier("mergeAll")),
+          [decl.init, newLayerExpr],
+        );
+        decl.init = mergedExpr;
+        log("[Codemod] Wrapped in new Layer.mergeAll");
+      }
 
       result.changes.push(
-        `Updated AppLayer with layers: ${fix.layerNames.join(", ")}`,
+        `Added layers to AppLayer: ${fix.layerNames.join(", ")}`,
       );
     } else {
       // Case 1: Create new AppLayer and wrap Effect.run
@@ -213,14 +248,6 @@ export function applyLayerFix(fix: LayerFix): CodemodResult {
         parser: typescriptParser,
       });
       const layerDeclaration = layerAST.program.body[0];
-
-      // Add a comment above the layer declaration
-      const comment = b.commentBlock(
-        " Auto-generated layer composition ",
-        true,
-        false,
-      );
-      layerDeclaration.comments = [comment];
 
       // Insert the layer declaration before the statement
       insertionStatement.insertBefore(layerDeclaration);

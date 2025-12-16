@@ -1,7 +1,7 @@
 /**
  * Analysis Status View Component
  *
- * Shows different analysis states: idle, analyzing, complete (no results), error, applied.
+ * Shows different analysis states: idle, analyzing, complete (no results), error.
  */
 
 import { Show } from "solid-js";
@@ -78,21 +78,6 @@ export function AnalysisStatusView() {
           Press [a] to retry
         </text>
         <text style={{ fg: COLORS.muted }}>Press [?] for help</text>
-      </Show>
-
-      <Show when={store.ui.layerAnalysisStatus === "applied"}>
-        <text style={{ fg: COLORS.success }} marginBottom={2}>
-          Fix applied successfully!
-        </text>
-        <Show when={store.ui.layerAnalysisResults}>
-          <text style={{ fg: COLORS.text }} marginBottom={1}>
-            {`Modified: ${store.ui.layerAnalysisResults?.targetFile}:${store.ui.layerAnalysisResults?.targetLine}`}
-          </text>
-          <text style={{ fg: COLORS.text }} marginBottom={2}>
-            Added: Layer composition
-          </text>
-        </Show>
-        <text style={{ fg: COLORS.muted }}>Press [a] to re-analyze</text>
       </Show>
     </box>
   );
