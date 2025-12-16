@@ -355,6 +355,89 @@ const BOX_CHARS = new Set<string>([
   BOX.cross,
 ]);
 
+// Edge characters that can be merged with other edge characters
+const EDGE_CHARS = new Set<string>([
+  BOX.horizontal,
+  BOX.vertical,
+  "└",
+  "┐",
+  "┘",
+  "┌",
+  BOX.topT,
+  BOX.bottomT,
+  BOX.leftT,
+  BOX.rightT,
+  BOX.cross,
+]);
+
+/**
+ * Merge two edge characters together to form the appropriate junction
+ * Returns the merged character, or newChar if no merge is needed
+ */
+function mergeEdgeChars(existing: string, newChar: string): string {
+  if (existing === " " || existing === newChar) {
+    return newChar;
+  }
+
+  // Define which directions each character connects to
+  // up, right, down, left
+  const connections: Record<string, [boolean, boolean, boolean, boolean]> = {
+    [BOX.horizontal]: [false, true, false, true], // ─
+    [BOX.vertical]: [true, false, true, false], // │
+    "└": [true, true, false, false], // up, right
+    "┐": [false, false, true, true], // down, left
+    "┘": [true, false, false, true], // up, left
+    "┌": [false, true, true, false], // right, down
+    [BOX.topT]: [false, true, true, true], // ┬ (right, down, left)
+    [BOX.bottomT]: [true, true, false, true], // ┴ (up, right, left)
+    [BOX.leftT]: [true, true, true, false], // ├ (up, right, down)
+    [BOX.rightT]: [true, false, true, true], // ┤ (up, down, left)
+    [BOX.cross]: [true, true, true, true], // ┼
+  };
+
+  const existingConn = connections[existing];
+  const newConn = connections[newChar];
+
+  if (!existingConn || !newConn) {
+    // If we don't recognize one of the characters, just use the new one
+    return newChar;
+  }
+
+  // Merge the connections (OR them together)
+  const merged: [boolean, boolean, boolean, boolean] = [
+    existingConn[0] || newConn[0], // up
+    existingConn[1] || newConn[1], // right
+    existingConn[2] || newConn[2], // down
+    existingConn[3] || newConn[3], // left
+  ];
+
+  // Convert back to a character
+  const [up, right, down, left] = merged;
+  const count = [up, right, down, left].filter(Boolean).length;
+
+  if (count === 4) return BOX.cross; // ┼
+  if (count === 3) {
+    if (!up) return BOX.topT; // ┬
+    if (!right) return BOX.rightT; // ┤
+    if (!down) return BOX.bottomT; // ┴
+    if (!left) return BOX.leftT; // ├
+  }
+  if (count === 2) {
+    if (up && right) return "└";
+    if (up && down) return BOX.vertical;
+    if (up && left) return "┘";
+    if (right && down) return "┌";
+    if (right && left) return BOX.horizontal;
+    if (down && left) return "┐";
+  }
+  if (count === 1) {
+    if (up || down) return BOX.vertical;
+    if (right || left) return BOX.horizontal;
+  }
+
+  return newChar;
+}
+
 /**
  * Check if a character is part of a node box (should not be overwritten)
  */
@@ -896,59 +979,139 @@ export function renderToAscii(
     }
   };
 
+  // Group edges by source node to handle branching properly
+  const edgesBySource = new Map<
+    string,
+    Array<{
+      edge: GraphEdge;
+      fromPos: NonNullable<ReturnType<typeof nodePositions.get>>;
+      toPos: NonNullable<ReturnType<typeof nodePositions.get>>;
+    }>
+  >();
+
   for (const edge of layout.edges) {
     const fromPos = nodePositions.get(edge.from);
     const toPos = nodePositions.get(edge.to);
 
     if (fromPos && toPos && fromPos.dagreRank !== toPos.dagreRank) {
-      // Calculate connection points using dynamic row positions
-      const fromRowY = rowYPositions[fromPos.row] ?? 0;
+      const key = edge.from;
+      if (!edgesBySource.has(key)) {
+        edgesBySource.set(key, []);
+      }
+      edgesBySource.get(key)!.push({ edge, fromPos, toPos });
+    }
+  }
+
+  // Draw edges grouped by source
+  for (const [_sourceId, edges] of edgesBySource) {
+    if (edges.length === 0) continue;
+
+    const { fromPos } = edges[0];
+    const fromRowY = rowYPositions[fromPos.row] ?? 0;
+    const fromBoxHeight = fromPos.boxHeight;
+    const fromY = fromRowY + fromBoxHeight; // Bottom of source box
+    const fromX = fromPos.x;
+
+    // Collect all target positions and calculate midY based on the closest target
+    const targets = edges.map(({ toPos }) => {
       const toRowY = rowYPositions[toPos.row] ?? 0;
-      const fromBoxHeight = fromPos.boxHeight;
-      const toBoxHeight = toPos.boxHeight;
-
-      const fromY = fromRowY + fromBoxHeight; // Bottom of source box
       const toY = toRowY - 1; // Just above target box
-      const fromX = fromPos.x;
-      const toX = toPos.x;
+      return { toX: toPos.x, toY };
+    });
 
-      if (fromY < toY) {
-        // Draw vertical line down from source
-        // Calculate midY as the midpoint between source bottom and target top
-        const midY = Math.floor((fromY + toY) / 2);
+    // Use the minimum toY (closest target) for midY calculation
+    const minToY = Math.min(...targets.map((t) => t.toY));
+    const midY = Math.floor((fromY + minToY) / 2);
 
-        // From bottom of source, go down
-        drawVerticalLineAvoidingBoxes(fromX, fromY, midY);
+    // Check if all targets are at the same Y level (same row)
+    const allSameRow = targets.every((t) => t.toY === targets[0].toY);
 
-        // If horizontal offset needed, draw horizontal segment
-        if (fromX !== toX) {
-          drawHorizontalLine(buffer, fromX, toX, midY);
-          // Add corner characters
-          if (fromX < toX) {
-            writeString(
-              buffer,
-              fromX,
-              midY,
-              BOX.topLeft === buffer[midY]?.[fromX] ? BOX.cross : "└",
-            );
-            writeString(buffer, toX, midY, "┐");
-          } else {
-            writeString(buffer, fromX, midY, "┘");
-            writeString(buffer, toX, midY, "└");
-          }
-        }
+    if (allSameRow && targets.length > 1) {
+      // Multiple targets at same level - draw as a branching line
+      const targetXs = targets.map((t) => t.toX).sort((a, b) => a - b);
+      const leftmostX = targetXs[0];
+      const rightmostX = targetXs[targetXs.length - 1];
+      const toY = targets[0].toY;
 
-        // Go down to target
-        drawVerticalLineAvoidingBoxes(toX, midY, toY);
+      // Draw vertical line from source down to midY
+      drawVerticalLineAvoidingBoxes(fromX, fromY, midY);
 
-        // Draw arrow pointing to target
+      // Draw horizontal line spanning all targets
+      drawHorizontalLine(buffer, leftmostX, rightmostX, midY);
+
+      // Draw corners: ┌ at left end, ┐ at right end
+      writeString(buffer, leftmostX, midY, "┌");
+      writeString(buffer, rightmostX, midY, "┐");
+
+      // Draw ┴ at source position (where vertical meets horizontal)
+      if (fromX > leftmostX && fromX < rightmostX) {
+        writeString(buffer, fromX, midY, "┴");
+      } else if (fromX === leftmostX) {
+        // Source is at leftmost - use └ instead of ┌
+        writeString(buffer, leftmostX, midY, "└");
+      } else if (fromX === rightmostX) {
+        // Source is at rightmost - use ┘ instead of ┐
+        writeString(buffer, rightmostX, midY, "┘");
+      }
+
+      // Draw vertical lines down to each target and arrows
+      for (const { toX, toY: targetY } of targets) {
+        drawVerticalLineAvoidingBoxes(toX, midY, targetY);
         if (
-          toY >= 0 &&
-          toY < buffer.length &&
+          targetY >= 0 &&
+          targetY < buffer.length &&
           toX >= 0 &&
-          toX < buffer[toY].length
+          toX < buffer[targetY].length
         ) {
-          buffer[toY][toX] = BOX.arrowDown;
+          buffer[targetY][toX] = BOX.arrowDown;
+        }
+      }
+    } else {
+      // Single target or targets at different Y levels - draw individually
+      for (const { toPos } of edges) {
+        const toRowY = rowYPositions[toPos.row] ?? 0;
+        const toY = toRowY - 1;
+        const toX = toPos.x;
+
+        if (fromY < toY) {
+          const edgeMidY = Math.floor((fromY + toY) / 2);
+
+          // Draw vertical line down from source
+          drawVerticalLineAvoidingBoxes(fromX, fromY, edgeMidY);
+
+          // If horizontal offset needed, draw horizontal segment
+          if (fromX !== toX) {
+            drawHorizontalLine(buffer, fromX, toX, edgeMidY);
+            // Add corner characters
+            if (fromX < toX) {
+              const existingFrom = buffer[edgeMidY]?.[fromX] ?? " ";
+              const mergedFrom = mergeEdgeChars(existingFrom, "└");
+              writeString(buffer, fromX, edgeMidY, mergedFrom);
+              const existingTo = buffer[edgeMidY]?.[toX] ?? " ";
+              const mergedTo = mergeEdgeChars(existingTo, "┐");
+              writeString(buffer, toX, edgeMidY, mergedTo);
+            } else {
+              const existingFrom = buffer[edgeMidY]?.[fromX] ?? " ";
+              const mergedFrom = mergeEdgeChars(existingFrom, "┘");
+              writeString(buffer, fromX, edgeMidY, mergedFrom);
+              const existingTo = buffer[edgeMidY]?.[toX] ?? " ";
+              const mergedTo = mergeEdgeChars(existingTo, "┌");
+              writeString(buffer, toX, edgeMidY, mergedTo);
+            }
+          }
+
+          // Draw vertical line down to target
+          drawVerticalLineAvoidingBoxes(toX, edgeMidY, toY);
+
+          // Draw arrow
+          if (
+            toY >= 0 &&
+            toY < buffer.length &&
+            toX >= 0 &&
+            toX < buffer[toY].length
+          ) {
+            buffer[toY][toX] = BOX.arrowDown;
+          }
         }
       }
     }
