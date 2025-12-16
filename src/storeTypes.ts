@@ -106,6 +106,9 @@ export interface UIState {
   layerAnalysisResults: LayerAnalysisResults | null;
   layerAnalysisError: string | null;
   layerAnalysisLogs: string[];
+
+  // Dependency Graph
+  showDependencyGraph: boolean;
 }
 
 export interface StoreState {
@@ -185,6 +188,9 @@ export interface StoreActions {
   addAnalysisLog: (log: string) => void;
   getLayerAnalysisResults: () => LayerAnalysisResults | null;
   getLayerSelections: () => Map<string, string>;
+
+  // Dependency Graph actions
+  toggleDependencyGraph: () => void;
 }
 
 export interface StoreContext {

@@ -204,11 +204,22 @@ function AppContent() {
 
     // Fix tab specific keyboard handlers
     if (store.ui.activeTab === "fix") {
-      // Apply fix (when analysis is complete)
+      // Toggle dependency graph view (when analysis is complete)
+      if (
+        key.name === "g" &&
+        store.ui.layerAnalysisStatus === "complete" &&
+        store.ui.layerAnalysisResults
+      ) {
+        actions.toggleDependencyGraph();
+        return;
+      }
+
+      // Apply fix (when analysis is complete and not in graph view)
       if (
         key.name === "p" &&
         store.ui.layerAnalysisStatus === "complete" &&
-        store.ui.layerAnalysisResults
+        store.ui.layerAnalysisResults &&
+        !store.ui.showDependencyGraph
       ) {
         console.log("[App] Applying layer fix with user selections");
         triggerLayerFix();
@@ -432,12 +443,24 @@ function AppContent() {
           <Show
             when={
               store.ui.layerAnalysisStatus === "complete" &&
-              store.ui.layerAnalysisResults !== null
+              store.ui.layerAnalysisResults !== null &&
+              !store.ui.showDependencyGraph
             }
           >
             <text style={{ fg: "#c0caf5" }}>
-              [Tab] Focus | [j/k] Navigate | [Enter] Select | [c] Clear | [r]
-              Re-analyze | [1/2] Tab | [?] Help
+              [Tab] Focus | [j/k] Nav | [Enter] Select | [g] Graph | [p] Apply |
+              [c] Clear | [?] Help
+            </text>
+          </Show>
+          <Show
+            when={
+              store.ui.layerAnalysisStatus === "complete" &&
+              store.ui.layerAnalysisResults !== null &&
+              store.ui.showDependencyGraph
+            }
+          >
+            <text style={{ fg: "#c0caf5" }}>
+              [g] Close graph | [?] Help | [q] Quit
             </text>
           </Show>
           <Show when={store.ui.layerAnalysisStatus === "applied"}>

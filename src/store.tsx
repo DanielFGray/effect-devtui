@@ -214,6 +214,9 @@ export function StoreProvider(props: ParentProps) {
       layerAnalysisResults: null,
       layerAnalysisError: null,
       layerAnalysisLogs: [],
+
+      // Dependency Graph
+      showDependencyGraph: false,
     },
     debugCounter: 0,
   });
@@ -996,6 +999,11 @@ export function StoreProvider(props: ParentProps) {
     },
     getLayerSelections: () => {
       return store.ui.layerSelections;
+    },
+
+    // Dependency Graph actions
+    toggleDependencyGraph: () => {
+      setStore("ui", "showDependencyGraph", (prev) => !prev);
     },
   };
 
