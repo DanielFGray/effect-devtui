@@ -32,6 +32,7 @@ interface TreeNode {
   isLastChild: boolean;
   isTraceGroup: boolean; // Always false now, kept for compatibility
   ancestorLines: boolean[]; // For each depth level, whether to draw a vertical line
+  rootSpan: SimpleSpan | null; // Reference to root span for waterfall time calculations
 }
 
 /**
@@ -91,6 +92,7 @@ function buildHierarchicalSpanTree(
     depth: number,
     isLastChild: boolean,
     ancestorLines: boolean[],
+    rootSpan: SimpleSpan,
   ) => {
     // Prevent visiting the same span twice
     if (visited.has(span.spanId)) {
@@ -113,6 +115,7 @@ function buildHierarchicalSpanTree(
       isLastChild,
       isTraceGroup: false,
       ancestorLines,
+      rootSpan,
     });
 
     if (hasChildren && isExpanded) {
@@ -120,7 +123,7 @@ function buildHierarchicalSpanTree(
         const childIsLast = idx === children.length - 1;
         // For children, add to ancestorLines whether current node continues down
         const newAncestorLines = [...ancestorLines, !isLastChild];
-        visitSpan(child, depth + 1, childIsLast, newAncestorLines);
+        visitSpan(child, depth + 1, childIsLast, newAncestorLines, rootSpan);
       });
     }
   };
@@ -137,9 +140,9 @@ function buildHierarchicalSpanTree(
     return 0;
   });
 
-  // Visit each root span
+  // Visit each root span (passing itself as the rootSpan reference)
   rootSpans.forEach((root, idx) => {
-    visitSpan(root, 0, idx === rootSpans.length - 1, []);
+    visitSpan(root, 0, idx === rootSpans.length - 1, [], root);
   });
 
   return result;
@@ -158,6 +161,125 @@ function formatDuration(span: SimpleSpan): string {
     return `${durationMs.toFixed(1)}ms`;
   }
   return `${(durationMs / 1000).toFixed(2)}s`;
+}
+
+/**
+ * Render a waterfall bar using box-drawing characters
+ *
+ * Design:
+ *   Root span (completed): ●──────────────●
+ *   Root span (running):   ●──────────────▶
+ *   Child spans:           ├──────────┤
+ *   Child (running):       ├────────────────────────▸
+ */
+function renderWaterfallBar(
+  startOffset: number, // 0-1, where span starts relative to time range
+  endOffset: number, // 0-1, where span ends (1.0 for running spans)
+  barWidth: number, // available characters for the bar area
+  isRunning: boolean,
+  isRoot: boolean,
+): string {
+  if (barWidth < 3) return "";
+
+  const startCol = Math.floor(startOffset * barWidth);
+  const endCol = Math.min(Math.floor(endOffset * barWidth), barWidth - 1);
+  // Ensure minimum width of 2 so we always get start+end characters
+  const spanWidth = Math.max(endCol - startCol, 2);
+
+  // Build the bar string
+  let bar = "";
+
+  // Leading spaces
+  bar += " ".repeat(startCol);
+
+  // The bar itself
+  if (isRoot) {
+    if (isRunning) {
+      // Root span running: ●────▶
+      bar += "●";
+      bar += "─".repeat(Math.max(spanWidth - 2, 0));
+      bar += "▶";
+    } else {
+      // Root span completed: ●────●
+      bar += "●";
+      bar += "─".repeat(Math.max(spanWidth - 2, 0));
+      bar += "●";
+    }
+  } else {
+    if (isRunning) {
+      // Child span running: ├────▸
+      bar += "├";
+      bar += "─".repeat(Math.max(spanWidth - 2, 0));
+      bar += "▸";
+    } else {
+      // Child span completed: ├────┤
+      bar += "├";
+      bar += "─".repeat(Math.max(spanWidth - 2, 0));
+      bar += "┤";
+    }
+  }
+
+  // Trailing spaces to fill width
+  const remaining = barWidth - bar.length;
+  if (remaining > 0) {
+    bar += " ".repeat(remaining);
+  }
+
+  return bar;
+}
+
+/**
+ * Get time range for a span (relative to its root span)
+ */
+function getTimeRange(node: TreeNode): {
+  min: bigint;
+  max: bigint;
+  duration: number;
+} {
+  const rootSpan = node.rootSpan;
+  if (!rootSpan) return { min: 0n, max: 0n, duration: 0 };
+
+  const minTime = rootSpan.startTime;
+  let maxTime = rootSpan.endTime ?? rootSpan.startTime;
+
+  // If root is still running, extend the range
+  if (rootSpan.status === "running") {
+    const extension = (maxTime - minTime) / 2n;
+    maxTime = maxTime + (extension > 0n ? extension : 1000000000n); // At least 1 second
+  }
+
+  const duration = Number(maxTime - minTime);
+  return { min: minTime, max: maxTime, duration };
+}
+
+/**
+ * Calculate waterfall bar offsets for a span
+ */
+function getWaterfallOffsets(
+  span: SimpleSpan,
+  node: TreeNode,
+): { startOffset: number; endOffset: number } {
+  const range = getTimeRange(node);
+  const isRunning = span.status === "running";
+
+  let startOffset = 0;
+  let endOffset = 1;
+
+  if (range.duration > 0) {
+    startOffset = Number(span.startTime - range.min) / range.duration;
+    if (isRunning) {
+      endOffset = 1; // Extend to end
+    } else {
+      endOffset =
+        Number((span.endTime ?? span.startTime) - range.min) / range.duration;
+    }
+  }
+
+  // Clamp offsets
+  startOffset = Math.max(0, Math.min(1, startOffset));
+  endOffset = Math.max(startOffset + 0.01, Math.min(1, endOffset));
+
+  return { startOffset, endOffset };
 }
 
 /**
@@ -237,6 +359,8 @@ export function SpanTreeView(props: {
   selectedSpanId: string | null;
   expandedSpanIds: Set<string>;
   filterQuery?: string;
+  showWaterfall?: boolean;
+  waterfallBarWidth?: number;
 }) {
   // Memoize tree - will re-run whenever spans, expandedSpanIds, or filterQuery change
   const visibleNodes = createMemo(() =>
@@ -258,25 +382,63 @@ export function SpanTreeView(props: {
             // Handle regular span nodes
             if (!node.span) return null;
 
+            const span = node.span;
             const isSelected = () =>
               props.selectedSpanId !== null &&
-              props.selectedSpanId === node.span!.spanId;
+              props.selectedSpanId === span.spanId;
 
             const statusColor = () =>
-              node.span!.status === "running" ? theme.warning : theme.success;
+              span.status === "running" ? theme.warning : theme.success;
 
-            const duration = formatDuration(node.span);
-            const prefix = getTreePrefix(node, props.expandedSpanIds);
+            const duration = formatDuration(span);
+
+            // Build the row content - consistent column layout
+            // 2 columns always: [tree+name] [duration]
+            // 3 columns with waterfall: [tree+name] [waterfall bar] [duration]
+            const rowContent = () => {
+              const selector = isSelected() ? "> " : "  ";
+              const prefix = getTreePrefix(node, props.expandedSpanIds);
+
+              const TREE_NAME_WIDTH = 24; // Fixed width for tree prefix + span name combined
+              const DURATION_WIDTH = 10; // Fixed width for duration
+
+              // Combine tree prefix and span name, then pad/truncate to fixed width
+              const treeName = prefix + span.name;
+              const paddedTreeName =
+                treeName.length > TREE_NAME_WIDTH
+                  ? treeName.slice(0, TREE_NAME_WIDTH - 1) + "…"
+                  : treeName.padEnd(TREE_NAME_WIDTH);
+
+              if (props.showWaterfall && props.waterfallBarWidth) {
+                // With waterfall bar
+                const { startOffset, endOffset } = getWaterfallOffsets(
+                  span,
+                  node,
+                );
+                const bar = renderWaterfallBar(
+                  startOffset,
+                  endOffset,
+                  props.waterfallBarWidth,
+                  span.status === "running",
+                  node.depth === 0,
+                );
+
+                return `${selector}${paddedTreeName} ${bar} ${duration.padStart(DURATION_WIDTH)}`;
+              } else {
+                // Without waterfall bar - just tree+name and duration
+                return `${selector}${paddedTreeName} ${duration.padStart(DURATION_WIDTH)}`;
+              }
+            };
 
             return (
               <text
-                id={node.span.spanId}
+                id={span.spanId}
                 style={{
                   fg: isSelected() ? theme.bg : statusColor(),
                   bg: isSelected() ? theme.primary : undefined,
                 }}
               >
-                {`${isSelected() ? "> " : "  "}${prefix}${node.span.name}${duration ? ` (${duration})` : ""}`}
+                {rowContent()}
               </text>
             );
           }}
@@ -340,7 +502,9 @@ export function SpanDetailsPanel(props: {
             </text>
 
             <Show when={span.parent}>
-              <text style={{ fg: theme.muted }}>{`Parent: ${span.parent}`}</text>
+              <text
+                style={{ fg: theme.muted }}
+              >{`Parent: ${span.parent}`}</text>
             </Show>
 
             {/* Events Section */}

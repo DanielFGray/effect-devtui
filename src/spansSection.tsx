@@ -4,6 +4,7 @@
  */
 
 import { Show, createMemo, createEffect, onMount } from "solid-js";
+import { useTerminalDimensions } from "@opentui/solid";
 import { theme } from "./theme";
 import * as Option from "effect/Option";
 import { useStore, type FocusedSection } from "./store";
@@ -26,6 +27,7 @@ function getSectionHeaderColor(
  */
 export function SpansSection() {
   const { store } = useStore();
+  const dimensions = useTerminalDimensions();
 
   // Ref for the spans scrollbox to disable its keyboard handling
   let spansScrollBoxRef: ScrollBoxRenderable | undefined;
@@ -73,6 +75,19 @@ export function SpansSection() {
       .pipe(Option.getOrElse(() => "None")),
   );
 
+  const showWaterfall = createMemo(() => store.ui.spanViewMode === "waterfall");
+
+  // Calculate bar width for waterfall view based on terminal width
+  // Span list takes 60% of terminal, minus padding and fixed columns:
+  // - selection indicator (2) + tree prefix (~16) + name (~16) + spacing (4) + duration (10) = ~48
+  const waterfallBarWidth = createMemo(() => {
+    if (!showWaterfall()) return 0;
+    const termWidth = dimensions().width;
+    const spansWidth = Math.floor(termWidth * 0.6) - 4; // 60% minus padding
+    const available = spansWidth - 48;
+    return Math.max(20, available);
+  });
+
   return (
     <box
       flexDirection="column"
@@ -86,7 +101,7 @@ export function SpansSection() {
         flexShrink={0}
         style={{ fg: getSectionHeaderColor(store.ui.focusedSection, "spans") }}
       >
-        {`Spans (${spanCount()}) - Active: ${activeClientName()}`}
+        {`Spans (${spanCount()})${showWaterfall() ? " [Waterfall]" : ""} - Active: ${activeClientName()}`}
       </text>
 
       {/* Span filter input (shown when typing) */}
@@ -111,11 +126,13 @@ export function SpansSection() {
         </box>
       </Show>
 
-      {/* Side-by-side: Span list and details */}
+      {/* Main content: span list + details panel */}
       <box flexDirection="row" flexGrow={1}>
         {/* Span list - left side */}
         <scrollbox
-          ref={(r) => (spansScrollBoxRef = r)}
+          ref={(r) => {
+            spansScrollBoxRef = r;
+          }}
           width="60%"
           marginRight={1}
         >
@@ -124,6 +141,8 @@ export function SpansSection() {
             selectedSpanId={store.ui.selectedSpanId}
             expandedSpanIds={store.ui.expandedSpanIds}
             filterQuery={store.ui.spanFilterQuery || undefined}
+            showWaterfall={showWaterfall()}
+            waterfallBarWidth={waterfallBarWidth()}
           />
         </scrollbox>
 

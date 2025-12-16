@@ -207,6 +207,7 @@ export function StoreProvider(props: ParentProps) {
       metricsHeight: 12, // Fixed height for metrics section
       spanFilterQuery: "",
       showSpanFilter: false,
+      spanViewMode: "tree" as const,
 
       // Layer Analysis
       fixTabFocusedPanel: "services",
@@ -837,6 +838,12 @@ export function StoreProvider(props: ParentProps) {
 
     clearSpanFilter: () => {
       setStore("ui", "spanFilterQuery", "");
+    },
+
+    cycleSpanViewMode: () => {
+      setStore("ui", "spanViewMode", (prev) =>
+        prev === "tree" ? "waterfall" : "tree",
+      );
     },
 
     // Tab navigation actions

@@ -17,9 +17,27 @@ import * as Ref from "effect/Ref";
 import * as Fiber from "effect/Fiber";
 import * as Schedule from "effect/Schedule";
 import * as Layer from "effect/Layer";
+import * as Random from "effect/Random";
+import * as Duration from "effect/Duration";
 import { DevTools } from "@effect/experimental";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as readline from "node:readline";
+
+// Helper to create randomized delays with occasional "hangs"
+const randomDelay = (baseMs: number, varianceMs: number) =>
+  Effect.gen(function* () {
+    const offset = yield* Random.nextIntBetween(-varianceMs, varianceMs + 1);
+    let delayMs = Math.max(10, baseMs + offset);
+
+    // 10% chance to "hang" for 2-3x as long
+    const hangChance = yield* Random.nextIntBetween(0, 100);
+    if (hangChance < 10) {
+      const multiplier = yield* Random.nextIntBetween(200, 301); // 2.0x - 3.0x
+      delayMs = Math.round((delayMs * multiplier) / 100);
+    }
+
+    yield* Effect.sleep(Duration.millis(delayMs));
+  });
 
 // Connect to the DevTools TUI server
 const DEVTOOLS_URL = "ws://localhost:34437";
@@ -31,7 +49,7 @@ const DEVTOOLS_URL = "ws://localhost:34437";
 const fetchUser = (userId: number) =>
   Effect.gen(function* () {
     yield* Effect.log(`Fetching user ${userId}`);
-    yield* Effect.sleep("100 millis");
+    yield* randomDelay(100, 50); // 50-150ms
     return {
       id: userId,
       name: `User ${userId}`,
@@ -42,18 +60,18 @@ const fetchUser = (userId: number) =>
 const processUser = (user: { id: number; name: string; email: string }) =>
   Effect.gen(function* () {
     yield* Effect.log(`Processing user ${user.name}`);
-    yield* Effect.sleep("50 millis");
+    yield* randomDelay(50, 25); // 25-75ms
 
     // Nested span: validate email
     yield* Effect.gen(function* () {
       yield* Effect.log(`Validating email ${user.email}`);
-      yield* Effect.sleep("20 millis");
+      yield* randomDelay(20, 10); // 10-30ms
     }).pipe(Effect.withSpan("validateEmail"));
 
     // Nested span: enrich data
     yield* Effect.gen(function* () {
       yield* Effect.log(`Enriching user data`);
-      yield* Effect.sleep("30 millis");
+      yield* randomDelay(30, 15); // 15-45ms
     }).pipe(Effect.withSpan("enrichData"));
 
     return { ...user, processed: true };
@@ -62,7 +80,7 @@ const processUser = (user: { id: number; name: string; email: string }) =>
 const saveUser = (user: any) =>
   Effect.gen(function* () {
     yield* Effect.log(`Saving user ${user.name}`);
-    yield* Effect.sleep("75 millis");
+    yield* randomDelay(75, 35); // 40-110ms
   }).pipe(Effect.withSpan("saveUser", { attributes: { userId: user.id } }));
 
 const userWorkflow = (userId: number) =>
@@ -79,13 +97,13 @@ const userWorkflow = (userId: number) =>
 
 const connectToDatabase = Effect.gen(function* () {
   yield* Effect.log("Connecting to database");
-  yield* Effect.sleep("80 millis");
+  yield* randomDelay(80, 40); // 40-120ms
 }).pipe(Effect.withSpan("connect"));
 
 const executeQuery = (query: string) =>
   Effect.gen(function* () {
     yield* Effect.log(`Executing query: ${query}`);
-    yield* Effect.sleep("120 millis");
+    yield* randomDelay(120, 60); // 60-180ms
     return [
       { id: 1, data: "row1" },
       { id: 2, data: "row2" },
@@ -95,7 +113,7 @@ const executeQuery = (query: string) =>
 const parseResults = (results: any[]) =>
   Effect.gen(function* () {
     yield* Effect.log(`Parsing ${results.length} results`);
-    yield* Effect.sleep("40 millis");
+    yield* randomDelay(40, 20); // 20-60ms
     return results.map((r) => ({ ...r, parsed: true }));
   }).pipe(Effect.withSpan("parseResults"));
 
@@ -113,25 +131,25 @@ const databaseQuery = (query: string) =>
 
 const authenticate = Effect.gen(function* () {
   yield* Effect.log("Authenticating API request");
-  yield* Effect.sleep("60 millis");
+  yield* randomDelay(60, 30); // 30-90ms
   return "token-12345";
 }).pipe(Effect.withSpan("authenticate"));
 
 const fetchData = (_token: string, endpoint: string) =>
   Effect.gen(function* () {
     yield* Effect.log(`Fetching data from ${endpoint}`);
-    yield* Effect.sleep("90 millis");
+    yield* randomDelay(90, 45); // 45-135ms
 
     // Nested: check rate limit
     yield* Effect.gen(function* () {
       yield* Effect.log("Checking rate limit");
-      yield* Effect.sleep("15 millis");
+      yield* randomDelay(15, 8); // 7-23ms
     }).pipe(Effect.withSpan("rateLimit"));
 
     // Nested: transform data
     yield* Effect.gen(function* () {
       yield* Effect.log("Transforming response data");
-      yield* Effect.sleep("25 millis");
+      yield* randomDelay(25, 12); // 13-37ms
     }).pipe(Effect.withSpan("transform"));
 
     return { data: "api-response", endpoint };
@@ -140,7 +158,7 @@ const fetchData = (_token: string, endpoint: string) =>
 const cacheResponse = (_response: any) =>
   Effect.gen(function* () {
     yield* Effect.log("Caching API response");
-    yield* Effect.sleep("35 millis");
+    yield* randomDelay(35, 18); // 17-53ms
   }).pipe(Effect.withSpan("cacheResponse"));
 
 const apiRequest = (endpoint: string) =>

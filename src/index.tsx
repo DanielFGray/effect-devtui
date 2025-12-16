@@ -400,6 +400,17 @@ function AppContent() {
         return;
       }
 
+      // Toggle span view mode with "g" key (only when spans section is focused)
+      if (
+        key.name === "g" &&
+        !key.ctrl &&
+        !key.meta &&
+        store.ui.focusedSection === "spans"
+      ) {
+        actions.cycleSpanViewMode();
+        return;
+      }
+
       // Clear active span filter with Escape when not in filter input mode
       if (
         key.name === "escape" &&

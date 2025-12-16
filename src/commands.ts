@@ -23,6 +23,7 @@ export function getCommands(actions: {
   clearMetrics: () => void;
   toggleHelp: () => void;
   setFocusedSection: (section: "clients" | "spans" | "metrics") => void;
+  cycleSpanViewMode: () => void;
 }): Command[] {
   return [
     {
@@ -38,6 +39,14 @@ export function getCommands(actions: {
       description: "Collapse all expanded spans in the tree view",
       category: "view",
       execute: actions.collapseAllSpans,
+    },
+    {
+      id: "cycle-span-view",
+      label: "Toggle Waterfall Graph",
+      description: "Toggle waterfall timing graph in span view",
+      shortcut: "g",
+      category: "view",
+      execute: actions.cycleSpanViewMode,
     },
     {
       id: "clear-spans",

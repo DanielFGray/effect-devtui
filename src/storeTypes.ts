@@ -16,6 +16,7 @@ import type { Client } from "./server";
 
 export type FocusedSection = "clients" | "spans" | "metrics";
 export type ActiveTab = "observability" | "fix";
+export type SpanViewMode = "tree" | "waterfall";
 
 export interface SimpleSpanEvent {
   name: string;
@@ -130,6 +131,7 @@ export interface UIState {
   metricsHeight: number;
   spanFilterQuery: string;
   showSpanFilter: boolean;
+  spanViewMode: SpanViewMode;
 
   // Layer Analysis
   fixTabFocusedPanel: "graph" | "services" | "candidates";
@@ -203,6 +205,7 @@ export interface StoreActions {
   setSpanFilterQuery: (query: string) => void;
   toggleSpanFilter: () => void;
   clearSpanFilter: () => void;
+  cycleSpanViewMode: () => void;
 
   // Tab navigation actions
   setActiveTab: (tab: ActiveTab) => void;
