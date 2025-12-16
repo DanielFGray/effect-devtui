@@ -2,12 +2,14 @@
  * Analysis Status View Component
  *
  * Shows different analysis states: idle, analyzing, complete (no results), error.
+ * During analysis, shows progress steps with muted colors for pending steps
+ * and unmuted colors for completed steps.
  */
 
 import { Show } from "solid-js";
 import { theme } from "./theme";
 import { useStore } from "./store";
-
+import { AnalysisProgressList } from "./AnalysisProgressList";
 
 export function AnalysisStatusView() {
   const { store } = useStore();
@@ -33,16 +35,12 @@ export function AnalysisStatusView() {
         <text style={{ fg: theme.warning }} marginBottom={2}>
           Analyzing project...
         </text>
-        <text style={{ fg: theme.muted }} marginBottom={1}>
-          - Searching for tsconfig.json
+        <text style={{ fg: theme.muted }} marginBottom={2}>
+          Press [Esc] to cancel
         </text>
-        <text style={{ fg: theme.muted }} marginBottom={1}>
-          - Scanning TypeScript diagnostics
-        </text>
-        <text style={{ fg: theme.muted }} marginBottom={1}>
-          - Finding layer definitions
-        </text>
-        <text style={{ fg: theme.muted }}>- Resolving dependencies</text>
+
+        {/* Progress steps with reactive coloring */}
+        <AnalysisProgressList />
       </Show>
 
       <Show

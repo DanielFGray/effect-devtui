@@ -10,6 +10,7 @@ import { Show, createMemo } from "solid-js";
 import { theme } from "./theme";
 import { useStore } from "./store";
 import { AnalysisStatusView } from "./AnalysisStatusView";
+import { AnalysisProgressList } from "./AnalysisProgressList";
 import { ServicesListPanel } from "./ServicesListPanel";
 import { LayerCandidatesPanel } from "./LayerCandidatesPanel";
 import { DependencyGraphPanel } from "./DependencyGraphView";
@@ -42,6 +43,11 @@ export function FixTab() {
   // Show results view when we have results (even if re-analyzing)
   const showResultsView = createMemo(() => hasPreviousResults());
 
+  // Show re-analyzing indicator when we have results AND are analyzing
+  const isReAnalyzing = createMemo(
+    () => hasPreviousResults() && store.ui.layerAnalysisStatus === "analyzing",
+  );
+
   return (
     <box
       flexDirection="column"
@@ -57,6 +63,25 @@ export function FixTab() {
       {/* Results view: graph + service panels */}
       <Show when={showResultsView()}>
         <box flexGrow={1} flexDirection="column" width="100%">
+          {/* Re-analyzing indicator - shown above graph when re-analyzing */}
+          <Show when={isReAnalyzing()}>
+            <box
+              flexDirection="row"
+              width="100%"
+              paddingLeft={2}
+              paddingTop={1}
+              paddingBottom={1}
+              backgroundColor={theme.bgAlt}
+              border={["bottom"]}
+              borderColor={theme.bgSelected}
+            >
+              <AnalysisProgressList compact />
+              <text style={{ fg: theme.muted }} marginLeft={2}>
+                [Esc] Cancel
+              </text>
+            </box>
+          </Show>
+
           {/* Graph view (toggleable) */}
           <Show when={showGraph()}>
             <box

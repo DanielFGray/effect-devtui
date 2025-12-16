@@ -80,6 +80,38 @@ export interface LayerAnalysisResults {
   message?: string;
 }
 
+/** Progress steps for layer analysis */
+export type AnalysisProgressStep =
+  | "finding_tsconfig"
+  | "getting_diagnostics"
+  | "finding_requirements"
+  | "finding_layers"
+  | "building_index"
+  | "resolving_deps"
+  | "generating_code";
+
+/** Labels for each progress step */
+export const ANALYSIS_STEP_LABELS: Record<AnalysisProgressStep, string> = {
+  finding_tsconfig: "Searching for tsconfig.json",
+  getting_diagnostics: "Getting diagnostics",
+  finding_requirements: "Finding missing requirements",
+  finding_layers: "Finding layer definitions",
+  building_index: "Building layer index",
+  resolving_deps: "Resolving dependencies",
+  generating_code: "Generating code suggestions",
+};
+
+/** Ordered list of analysis steps */
+export const ANALYSIS_STEPS: AnalysisProgressStep[] = [
+  "finding_tsconfig",
+  "getting_diagnostics",
+  "finding_requirements",
+  "finding_layers",
+  "building_index",
+  "resolving_deps",
+  "generating_code",
+];
+
 export interface UIState {
   activeTab: ActiveTab;
   focusedSection: FocusedSection;
@@ -106,6 +138,7 @@ export interface UIState {
   selectedLayerCandidateIndex: number;
   layerSelections: Map<string, string>;
   layerAnalysisStatus: "idle" | "analyzing" | "complete" | "error";
+  layerAnalysisProgress: AnalysisProgressStep | null;
   layerAnalysisResults: LayerAnalysisResults | null;
   layerAnalysisError: string | null;
   layerAnalysisLogs: string[];
@@ -183,9 +216,11 @@ export interface StoreActions {
 
   // Layer Analysis actions
   startLayerAnalysis: () => void;
+  cancelLayerAnalysis: () => void;
   setLayerAnalysisStatus: (
     status: "idle" | "analyzing" | "complete" | "error",
   ) => void;
+  setLayerAnalysisProgress: (step: AnalysisProgressStep | null) => void;
   setLayerAnalysisResults: (results: LayerAnalysisResults | null) => void;
   setLayerAnalysisError: (error: string | null) => void;
   closeLayerAnalyzer: () => void;

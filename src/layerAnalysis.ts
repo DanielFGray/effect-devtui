@@ -1,5 +1,5 @@
 // Layer Analysis Service
-// Runs layer analysis synchronously in a deferred context to avoid blocking
+// Runs layer analysis with progress reporting at each stage
 
 import { Effect } from "effect";
 import * as path from "path";
@@ -15,6 +15,7 @@ import {
   resolveTransitiveDependencies,
   generateLayerCode,
 } from "./layerResolverCore";
+import type { AnalysisProgressStep } from "./storeTypes";
 
 export interface AnalysisResult {
   status: "success" | "error";
@@ -52,130 +53,104 @@ export interface AnalysisResult {
 }
 
 /**
+ * Helper to update progress and yield to the event loop for UI updates
+ */
+const setProgress = (step: AnalysisProgressStep) =>
+  Effect.gen(function* () {
+    const actions = yield* StoreActionsService;
+    yield* actions.setLayerAnalysisProgress(step);
+    // Yield to the JS event loop to allow Solid.js to re-render
+    // Using setTimeout(0) to ensure we actually yield to the event loop
+    yield* Effect.sleep("1 millis");
+  });
+
+/**
  * Run layer analysis on a TypeScript project
- * Runs analysis synchronously but schedules it to avoid blocking
+ * Reports progress at each stage to allow UI updates
  */
 export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
   Effect.gen(function* () {
     const actions = yield* StoreActionsService;
 
     yield* actions.setLayerAnalysisStatus("analyzing");
-    // Keep previous results while re-analyzing so graph persists
+    yield* actions.setLayerAnalysisProgress(null);
     yield* actions.setLayerAnalysisError(null);
 
-    // Find tsconfig.json in project path
+    // Step 1: Find tsconfig.json
+    yield* setProgress("finding_tsconfig");
     const tsconfigPath = yield* findTsConfig(projectPath);
 
     if (!tsconfigPath) {
       const error = `No tsconfig.json found in ${projectPath}`;
       yield* actions.setLayerAnalysisError(error);
       yield* actions.setLayerAnalysisStatus("error");
+      yield* actions.setLayerAnalysisProgress(null);
       console.log(error);
       return;
     }
 
     console.log(`Running layer analysis on ${tsconfigPath}`);
 
-    // Run analysis in an async context to avoid blocking
-    const result = yield* Effect.tryPromise({
-      try: async () => {
-        return await new Promise<AnalysisResult>((resolve, reject) => {
-          // Schedule the analysis to run asynchronously
-          setImmediate(() => {
-            try {
-              const analysis = performAnalysis(tsconfigPath);
-              resolve(analysis);
-            } catch (error) {
-              reject(error);
-            }
-          });
-        });
-      },
-      catch: (error) => new Error(String(error)),
+    // Create TypeScript program (part of getting diagnostics)
+    const program = yield* Effect.try({
+      try: () => createProgram(tsconfigPath),
+      catch: (error) =>
+        new Error(`Failed to create TypeScript program: ${error}`),
     });
 
-    // Handle the result
-    yield* Effect.gen(function* () {
-      const actions = yield* StoreActionsService;
+    if (!program) {
+      yield* actions.setLayerAnalysisError(
+        "Failed to create TypeScript program",
+      );
+      yield* actions.setLayerAnalysisStatus("error");
+      yield* actions.setLayerAnalysisProgress(null);
+      return;
+    }
 
-      if (result.status === "error") {
-        yield* actions.setLayerAnalysisError(result.errors.join("\n"));
-        yield* actions.setLayerAnalysisStatus("error");
-      } else if (result.missing.length === 0) {
-        yield* actions.setLayerAnalysisStatus("complete");
-        yield* actions.setLayerAnalysisResults({
-          missing: [],
-          resolved: [],
-          candidates: result.candidates || [],
-          generatedCode: "",
-          message: "No missing layer requirements found!",
-        });
-      } else {
-        console.log(
-          `[LayerAnalysis] Setting results with ${result.candidates?.length || 0} candidate groups`,
-        );
-        yield* actions.setLayerAnalysisStatus("complete");
-        yield* actions.setLayerAnalysisResults({
-          missing: result.missing,
-          resolved: result.resolved,
-          candidates: result.candidates || [],
-          allLayers: result.allLayers || [],
-          generatedCode: result.generatedCode,
-          targetFile: result.targetFile,
-          targetLine: result.targetLine,
-          stillMissing: result.stillMissing,
-          resolutionOrder: result.resolutionOrder,
-        });
-      }
-    }).pipe(
-      Effect.catchAll((error) =>
-        Effect.gen(function* () {
-          const actions = yield* StoreActionsService;
-          yield* actions.setLayerAnalysisError(`Analysis failed: ${error}`);
-          yield* actions.setLayerAnalysisStatus("error");
-        }),
-      ),
-    );
-  });
+    // Step 3: Get diagnostics
+    yield* setProgress("getting_diagnostics");
+    const diagnostics = yield* Effect.try({
+      try: () => getDiagnostics(tsconfigPath),
+      catch: (error) => new Error(`Failed to get diagnostics: ${error}`),
+    });
 
-/**
- * Perform the actual layer analysis
- * This is called in a deferred async context to allow UI updates
- */
-function performAnalysis(tsconfigPath: string): AnalysisResult {
-  try {
-    console.log(`[LayerAnalysis] Starting analysis on ${tsconfigPath}`);
-
-    // Get diagnostics
-    const diagnostics = getDiagnostics(tsconfigPath);
-    const missingReqs = findMissingRequirements(diagnostics);
+    // Step 4: Find missing requirements
+    yield* setProgress("finding_requirements");
+    const missingReqs = yield* Effect.try({
+      try: () => findMissingRequirements(diagnostics),
+      catch: (error) =>
+        new Error(`Failed to find missing requirements: ${error}`),
+    });
 
     if (missingReqs.length === 0) {
-      const result: AnalysisResult = {
-        status: "success",
+      yield* actions.setLayerAnalysisStatus("complete");
+      yield* actions.setLayerAnalysisProgress(null);
+      yield* actions.setLayerAnalysisResults({
         missing: [],
         resolved: [],
         candidates: [],
-        allLayers: [],
         generatedCode: "",
-        resolutionOrder: [],
-        stillMissing: [],
-        errors: [],
-        targetFile: null,
-        targetLine: null,
-      };
-      return result;
+        message: "No missing layer requirements found!",
+      });
+      return;
     }
 
-    // Find layer definitions
-    const program = createProgram(tsconfigPath);
-    if (!program) {
-      throw new Error("Failed to create TypeScript program");
-    }
+    // Step 5: Find layer definitions
+    yield* setProgress("finding_layers");
+    const layers = yield* Effect.try({
+      try: () => findLayerDefinitions(program),
+      catch: (error) => new Error(`Failed to find layer definitions: ${error}`),
+    });
 
-    const layers = findLayerDefinitions(program);
-    const layerIndex = buildLayerIndex(layers);
+    // Step 6: Build layer index
+    yield* setProgress("building_index");
+    const layerIndex = yield* Effect.try({
+      try: () => buildLayerIndex(layers),
+      catch: (error) => new Error(`Failed to build layer index: ${error}`),
+    });
 
+    // Step 7: Resolve dependencies
+    yield* setProgress("resolving_deps");
     const allMissing = Array.from(
       new Set(missingReqs.flatMap((r: any) => r.missingServices)),
     );
@@ -183,9 +158,17 @@ function performAnalysis(tsconfigPath: string): AnalysisResult {
       resolved,
       missing: stillMissing,
       order,
-    } = resolveTransitiveDependencies(allMissing, layerIndex);
+    } = yield* Effect.try({
+      try: () => resolveTransitiveDependencies(allMissing, layerIndex),
+      catch: (error) => new Error(`Failed to resolve dependencies: ${error}`),
+    });
 
-    const generatedCode = generateLayerCode(resolved, layerIndex);
+    // Step 8: Generate code
+    yield* setProgress("generating_code");
+    const generatedCode = yield* Effect.try({
+      try: () => generateLayerCode(resolved, layerIndex),
+      catch: (error) => new Error(`Failed to generate code: ${error}`),
+    });
 
     // Get target file/line from first missing requirement
     const targetFile = missingReqs[0]?.file || null;
@@ -204,8 +187,13 @@ function performAnalysis(tsconfigPath: string): AnalysisResult {
       })),
     }));
 
-    const result: AnalysisResult = {
-      status: "success",
+    // Complete!
+    console.log(
+      `[LayerAnalysis] Setting results with ${candidates.length} candidate groups`,
+    );
+    yield* actions.setLayerAnalysisStatus("complete");
+    yield* actions.setLayerAnalysisProgress(null);
+    yield* actions.setLayerAnalysisResults({
       missing: allMissing as any,
       resolved: resolved.map((layer: any) => ({
         service: layer.provides || "",
@@ -227,31 +215,20 @@ function performAnalysis(tsconfigPath: string): AnalysisResult {
       generatedCode,
       resolutionOrder: order,
       stillMissing,
-      errors: [],
       targetFile,
       targetLine,
-    };
-
-    console.log(`[LayerAnalysis] Analysis complete`);
-    return result;
-  } catch (error) {
-    const result: AnalysisResult = {
-      status: "error",
-      missing: [],
-      resolved: [],
-      candidates: [],
-      allLayers: [],
-      generatedCode: "",
-      resolutionOrder: [],
-      stillMissing: [],
-      errors: [String(error)],
-      targetFile: null,
-      targetLine: null,
-    };
-    console.error(`[LayerAnalysis] Error:`, error);
-    return result;
-  }
-}
+    });
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.gen(function* () {
+        const actions = yield* StoreActionsService;
+        console.error("[LayerAnalysis] Error:", error);
+        yield* actions.setLayerAnalysisError(`Analysis failed: ${error}`);
+        yield* actions.setLayerAnalysisStatus("error");
+        yield* actions.setLayerAnalysisProgress(null);
+      }),
+    ),
+  );
 
 /**
  * Apply the suggested layer fix by modifying the source file

@@ -240,6 +240,15 @@ function AppContent() {
         return;
       }
 
+      // Cancel analysis with ESC
+      if (
+        key.name === "escape" &&
+        store.ui.layerAnalysisStatus === "analyzing"
+      ) {
+        actions.cancelLayerAnalysis();
+        return;
+      }
+
       // Navigation within analysis results
       if (
         store.ui.layerAnalysisStatus === "complete" &&

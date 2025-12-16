@@ -13,6 +13,7 @@ import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 import * as Queue from "effect/Queue";
 import * as Fiber from "effect/Fiber";
+import * as Ref from "effect/Ref";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import { BunContext } from "@effect/platform-bun";
 import { runServer, ServerContext, type Client } from "./server";
@@ -27,14 +28,108 @@ import { runMcpServer, MCP_PORT } from "./mcp/server";
 
 export const PORT = 34437;
 
-// Global analysis queue for triggering layer analysis from UI
-let globalAnalysisQueue: Queue.Queue<string> | null = null;
+// =============================================================================
+// Analysis Controller - manages layer analysis lifecycle
+// =============================================================================
 
-// Global current analysis fiber - used to cancel previous analysis
-let currentAnalysisFiber: Fiber.RuntimeFiber<void, unknown> | null = null;
+/** Commands that can be sent to the analysis controller */
+type AnalysisCommand =
+  | { _tag: "Start"; projectPath: string }
+  | { _tag: "Cancel" };
 
-// Global store actions layer for triggering apply from UI
+/** Global command queue - the only module-level state we need */
+let analysisCommandQueue: Queue.Queue<AnalysisCommand> | null = null;
+
+/** Global store actions layer for apply fix (needed for triggerLayerFix) */
 let globalStoreActionsLayer: Layer.Layer<StoreActionsService> | null = null;
+
+/**
+ * Creates an analysis controller that manages the analysis fiber lifecycle
+ * using Effect Refs instead of module-level mutable state.
+ */
+const createAnalysisController = Effect.gen(function* () {
+  // Ref to track the current analysis fiber
+  const currentFiberRef = yield* Ref.make<Fiber.RuntimeFiber<
+    void,
+    unknown
+  > | null>(null);
+
+  // Command queue for analysis requests
+  const commandQueue = yield* Queue.unbounded<AnalysisCommand>();
+
+  // Expose the queue globally for the UI to send commands
+  analysisCommandQueue = commandQueue;
+
+  return {
+    commandQueue,
+    currentFiberRef,
+  };
+});
+
+/**
+ * Runs the analysis controller loop, processing commands from the queue
+ */
+const runAnalysisController = (controller: {
+  commandQueue: Queue.Queue<AnalysisCommand>;
+  currentFiberRef: Ref.Ref<Fiber.RuntimeFiber<void, unknown> | null>;
+}) =>
+  Effect.gen(function* () {
+    const { commandQueue, currentFiberRef } = controller;
+
+    yield* Stream.runForEach(Stream.fromQueue(commandQueue), (command) =>
+      Effect.gen(function* () {
+        const actions = yield* StoreActionsService;
+
+        switch (command._tag) {
+          case "Cancel": {
+            const currentFiber = yield* Ref.get(currentFiberRef);
+            if (currentFiber) {
+              console.log("[Runtime] Cancelling layer analysis");
+              yield* Fiber.interrupt(currentFiber);
+              yield* Ref.set(currentFiberRef, null);
+              yield* actions.setLayerAnalysisStatus("idle");
+              yield* actions.setLayerAnalysisProgress(null);
+            }
+            break;
+          }
+
+          case "Start": {
+            // Cancel previous analysis if running
+            const currentFiber = yield* Ref.get(currentFiberRef);
+            if (currentFiber) {
+              console.log("[Runtime] Cancelling previous analysis");
+              yield* Fiber.interrupt(currentFiber);
+            }
+
+            console.log(
+              `[Runtime] Triggering layer analysis for ${command.projectPath}`,
+            );
+
+            // Fork the analysis and track the fiber
+            const fiber = yield* runLayerAnalysis(command.projectPath).pipe(
+              Effect.ensuring(
+                // Clear the fiber ref when analysis completes (success or failure)
+                Ref.set(currentFiberRef, null),
+              ),
+              Effect.catchAll((error) =>
+                Effect.gen(function* () {
+                  const storeActions = yield* StoreActionsService;
+                  console.error("[Runtime] Layer analysis failed:", error);
+                  yield* storeActions.setLayerAnalysisError(String(error));
+                  yield* storeActions.setLayerAnalysisStatus("error");
+                  yield* storeActions.setLayerAnalysisProgress(null);
+                }),
+              ),
+              Effect.fork,
+            );
+
+            yield* Ref.set(currentFiberRef, fiber);
+            break;
+          }
+        }
+      }),
+    );
+  });
 
 /**
  * The main Effect program that:
@@ -175,36 +270,9 @@ const program = Effect.gen(function* () {
   yield* actions.setServerStatus("listening");
   console.log("[Runtime] Server is listening");
 
-  // Create layer analysis queue
-  const analysisQueue = yield* Queue.unbounded<string>();
-  globalAnalysisQueue = analysisQueue;
-
-  // Subscribe to layer analysis requests
-  yield* Stream.runForEach(Stream.fromQueue(analysisQueue), (projectPath) =>
-    Effect.gen(function* () {
-      // Cancel previous analysis if running
-      if (currentAnalysisFiber) {
-        console.log("[Runtime] Cancelling previous analysis");
-        yield* Fiber.interrupt(currentAnalysisFiber);
-        currentAnalysisFiber = null;
-      }
-
-      console.log(`[Runtime] Triggering layer analysis for ${projectPath}`);
-      const fiber = yield* runLayerAnalysis(projectPath).pipe(
-        Effect.catchAll((error) =>
-          Effect.gen(function* () {
-            const storeActions = yield* StoreActionsService;
-            console.error("[Runtime] Layer analysis failed:", error);
-            yield* storeActions.setLayerAnalysisError(String(error));
-            yield* storeActions.setLayerAnalysisStatus("error");
-          }),
-        ),
-        Effect.fork,
-      );
-
-      currentAnalysisFiber = fiber;
-    }),
-  ).pipe(Effect.fork);
+  // Create and run the analysis controller
+  const analysisController = yield* createAnalysisController;
+  yield* Effect.fork(runAnalysisController(analysisController));
 
   // Run forever
   yield* Effect.never;
@@ -266,15 +334,29 @@ export function startRuntime(
 
 /**
  * Trigger layer analysis from the UI
- * Queues an analysis request that will be processed by the Effect runtime
+ * Sends a Start command to the analysis controller
  */
 export function triggerLayerAnalysis(
   projectPath: string = process.cwd(),
 ): void {
-  if (globalAnalysisQueue) {
-    Effect.runSync(Queue.offer(globalAnalysisQueue, projectPath));
+  if (analysisCommandQueue) {
+    Effect.runSync(
+      Queue.offer(analysisCommandQueue, { _tag: "Start", projectPath }),
+    );
   } else {
-    console.warn("[Runtime] Analysis queue not initialized yet");
+    console.warn("[Runtime] Analysis command queue not initialized yet");
+  }
+}
+
+/**
+ * Cancel the currently running layer analysis
+ * Sends a Cancel command to the analysis controller
+ */
+export function cancelLayerAnalysis(): void {
+  if (analysisCommandQueue) {
+    Effect.runSync(Queue.offer(analysisCommandQueue, { _tag: "Cancel" }));
+  } else {
+    console.warn("[Runtime] Analysis command queue not initialized yet");
   }
 }
 

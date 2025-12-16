@@ -19,7 +19,11 @@ import {
 import type * as Domain from "@effect/experimental/DevTools/Domain";
 import type { Client } from "./server";
 import { getCommands, filterCommands } from "./commands";
-import { startRuntime, triggerLayerAnalysis } from "./runtime";
+import {
+  startRuntime,
+  triggerLayerAnalysis,
+  cancelLayerAnalysis,
+} from "./runtime";
 
 // Re-export types from storeTypes
 export type {
@@ -211,6 +215,7 @@ export function StoreProvider(props: ParentProps) {
       selectedLayerCandidateIndex: 0,
       layerSelections: new Map(),
       layerAnalysisStatus: "idle",
+      layerAnalysisProgress: null,
       layerAnalysisResults: null,
       layerAnalysisError: null,
       layerAnalysisLogs: [],
@@ -966,6 +971,7 @@ export function StoreProvider(props: ParentProps) {
     startLayerAnalysis: () => {
       setStore("ui", "activeTab", "fix");
       setStore("ui", "layerAnalysisStatus", "analyzing");
+      setStore("ui", "layerAnalysisProgress", null);
       // Keep previous results while re-analyzing so graph can persist
       // Results will be replaced when new analysis completes
       setStore("ui", "layerAnalysisError", null);
@@ -976,8 +982,20 @@ export function StoreProvider(props: ParentProps) {
       triggerLayerAnalysis(process.cwd());
     },
 
+    cancelLayerAnalysis: () => {
+      cancelLayerAnalysis();
+      batch(() => {
+        setStore("ui", "layerAnalysisStatus", "idle");
+        setStore("ui", "layerAnalysisProgress", null);
+      });
+    },
+
     setLayerAnalysisStatus: (status) => {
       setStore("ui", "layerAnalysisStatus", status);
+    },
+
+    setLayerAnalysisProgress: (step) => {
+      setStore("ui", "layerAnalysisProgress", step);
     },
 
     setLayerAnalysisResults: (results) => {

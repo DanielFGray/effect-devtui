@@ -6,7 +6,11 @@
  */
 
 import { Context, Effect, Layer, Ref } from "effect";
-import type { StoreActions, LayerAnalysisResults } from "./storeTypes";
+import type {
+  StoreActions,
+  LayerAnalysisResults,
+  AnalysisProgressStep,
+} from "./storeTypes";
 
 // =============================================================================
 // Service Definition
@@ -39,6 +43,9 @@ export interface StoreActionsService {
   // Layer Analysis actions
   readonly setLayerAnalysisStatus: (
     status: "idle" | "analyzing" | "complete" | "error",
+  ) => Effect.Effect<void>;
+  readonly setLayerAnalysisProgress: (
+    step: AnalysisProgressStep | null,
   ) => Effect.Effect<void>;
   readonly setLayerAnalysisResults: (
     results: LayerAnalysisResults | null,
@@ -118,6 +125,10 @@ export const makeStoreActionsLayer = (
       Effect.sync(() => {
         actions.setLayerAnalysisStatus(status);
       }),
+    setLayerAnalysisProgress: (step: AnalysisProgressStep | null) =>
+      Effect.sync(() => {
+        actions.setLayerAnalysisProgress(step);
+      }),
     setLayerAnalysisResults: (results: LayerAnalysisResults | null) =>
       Effect.sync(() => {
         actions.setLayerAnalysisResults(results);
@@ -156,6 +167,7 @@ export interface MockStoreActionsState {
   readonly activeClient: unknown;
   readonly serverStatus: "starting" | "listening" | "connected";
   readonly layerAnalysisStatus: "idle" | "analyzing" | "complete" | "error";
+  readonly layerAnalysisProgress: AnalysisProgressStep | null;
   readonly layerAnalysisResults: LayerAnalysisResults | null;
   readonly layerAnalysisError: string | null;
   readonly analysisLogs: string[];
@@ -169,6 +181,7 @@ export const makeMockStoreActionsLayer = Effect.gen(function* () {
     activeClient: null,
     serverStatus: "starting",
     layerAnalysisStatus: "idle",
+    layerAnalysisProgress: null,
     layerAnalysisResults: null,
     layerAnalysisError: null,
     analysisLogs: [],
@@ -207,6 +220,8 @@ export const makeMockStoreActionsLayer = Effect.gen(function* () {
     setLayerAnalysisStatus: (
       status: "idle" | "analyzing" | "complete" | "error",
     ) => Ref.update(stateRef, (s) => ({ ...s, layerAnalysisStatus: status })),
+    setLayerAnalysisProgress: (step: AnalysisProgressStep | null) =>
+      Ref.update(stateRef, (s) => ({ ...s, layerAnalysisProgress: step })),
     setLayerAnalysisResults: (results: LayerAnalysisResults | null) =>
       Ref.update(stateRef, (s) => ({ ...s, layerAnalysisResults: results })),
     setLayerAnalysisError: (error: string | null) =>
