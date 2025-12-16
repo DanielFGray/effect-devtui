@@ -5,6 +5,7 @@
  */
 
 import { createMemo, For, Show } from "solid-js";
+import { useTerminalDimensions } from "@opentui/solid";
 import { theme } from "./theme";
 import { useStore } from "./store";
 import type { LayerDefinition } from "./layerResolverCore";
@@ -15,12 +16,12 @@ import {
   findOrphans,
 } from "./dependencyGraph";
 
-
 interface DependencyGraphViewProps {
   layers: LayerDefinition[];
   selectedNode?: string;
   onSelectNode?: (name: string) => void;
   focused?: boolean;
+  maxWidth?: number;
 }
 
 /**
@@ -117,9 +118,11 @@ export function DependencyGraphView(props: DependencyGraphViewProps) {
     if (!layout) {
       return ["Failed to layout graph"];
     }
+    // Use provided maxWidth or default to 72 for narrow terminals
+    const width = props.maxWidth ?? 72;
     return renderToAscii(layout, {
       selectedNode: props.selectedNode,
-      maxWidth: 72, // Conservative width for typical 80-col terminals with padding
+      maxWidth: width,
     });
   });
 
@@ -160,8 +163,22 @@ export function DependencyGraphView(props: DependencyGraphViewProps) {
  */
 export function DependencyGraphPanel() {
   const { store } = useStore();
+  const dimensions = useTerminalDimensions();
 
   const isFocused = createMemo(() => store.ui.fixTabFocusedPanel === "graph");
+
+  // Calculate dynamic max width based on terminal size
+  // In wide mode (>120), graph takes 60% of width
+  // In narrow mode, use full width minus padding
+  const graphMaxWidth = createMemo(() => {
+    const termWidth = dimensions().width;
+    if (termWidth > 120) {
+      // Wide mode: graph is 60% of terminal, minus padding (4 chars)
+      return Math.floor(termWidth * 0.6) - 4;
+    }
+    // Narrow mode: full width minus padding
+    return termWidth - 4;
+  });
 
   const layers = createMemo((): LayerDefinition[] => {
     // Get layers from analysis results if available
@@ -215,7 +232,11 @@ export function DependencyGraphPanel() {
         </box>
       }
     >
-      <DependencyGraphView layers={layers()} focused={isFocused()} />
+      <DependencyGraphView
+        layers={layers()}
+        focused={isFocused()}
+        maxWidth={graphMaxWidth()}
+      />
     </Show>
   );
 }

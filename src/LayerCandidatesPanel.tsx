@@ -8,8 +8,11 @@ import { Show, For, createMemo } from "solid-js";
 import { theme } from "./theme";
 import { useStore } from "./store";
 
+interface LayerCandidatesPanelProps {
+  showLeftBorder?: boolean;
+}
 
-export function LayerCandidatesPanel() {
+export function LayerCandidatesPanel(props: LayerCandidatesPanelProps) {
   const { store } = useStore();
 
   const results = createMemo(() => store.ui.layerAnalysisResults);
@@ -30,13 +33,16 @@ export function LayerCandidatesPanel() {
     () => store.ui.fixTabFocusedPanel === "candidates",
   );
 
+  // Default to showing left border (for narrow horizontal layout)
+  const showBorder = () => props.showLeftBorder ?? true;
+
   return (
     <box
       flexDirection="column"
       flexGrow={1}
       paddingLeft={1}
       paddingRight={1}
-      border={["left"]}
+      border={showBorder() ? ["left"] : []}
       borderColor={theme.border}
     >
       <text
