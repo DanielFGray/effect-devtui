@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { render, useKeyboard, useRenderer } from "@opentui/solid";
-import { theme } from "./theme";
-import { Show, createMemo } from "solid-js";
+import { theme, initSystemTheme } from "./theme";
+import { Show, createMemo, onMount } from "solid-js";
 import { PORT, triggerLayerFix } from "./runtime";
 import { StoreProvider, useStore, type FocusedSection } from "./store";
 import { CommandPalette } from "./commandPalette";
@@ -81,6 +81,15 @@ Press any key (except arrows/hjkl) to close...`}
 function AppContent() {
   const renderer = useRenderer();
   const { store, actions } = useStore();
+
+  // Initialize system theme from terminal palette on mount
+  onMount(() => {
+    renderer.getPalette({ size: 16 }).then((colors) => {
+      if (colors.palette[0]) {
+        initSystemTheme(colors);
+      }
+    });
+  });
 
   // Setup keyboard handlers
   useKeyboard((key) => {
@@ -443,7 +452,12 @@ function AppContent() {
       </box>
 
       {/* Footer/Status Bar - Context-sensitive */}
-      <box height={1} width="100%" backgroundColor={theme.borderFocused} paddingLeft={1}>
+      <box
+        height={1}
+        width="100%"
+        backgroundColor={theme.borderFocused}
+        paddingLeft={1}
+      >
         <Show when={store.ui.activeTab === "observability"}>
           <text style={{ fg: theme.text }}>
             {`${statusText()} | Port: ${PORT} | Clients: ${clientCount()} | Spans: ${spanCount()} | Metrics: ${metricCount()} | [1/2] Tab | [Tab] Focus | [?] Help | [:] Command | [q] Quit`}
