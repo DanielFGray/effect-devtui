@@ -242,8 +242,8 @@ function getTimeRange(node: TreeNode): {
   const minTime = rootSpan.startTime;
   let maxTime = rootSpan.endTime ?? rootSpan.startTime;
 
-  // If root is still running, extend the range
-  if (rootSpan.status === "running") {
+  // If root is still running (no endTime), extend the range
+  if (rootSpan.endTime === null) {
     const extension = (maxTime - minTime) / 2n;
     maxTime = maxTime + (extension > 0n ? extension : 1000000000n); // At least 1 second
   }
@@ -260,7 +260,8 @@ function getWaterfallOffsets(
   node: TreeNode,
 ): { startOffset: number; endOffset: number } {
   const range = getTimeRange(node);
-  const isRunning = span.status === "running";
+  // Use endTime to determine if span is still running (more reliable than status)
+  const isRunning = span.endTime === null;
 
   let startOffset = 0;
   let endOffset = 1;
@@ -390,14 +391,14 @@ export function SpanTreeView(props: {
             const statusColor = () =>
               span.status === "running" ? theme.warning : theme.success;
 
-            const duration = formatDuration(span);
-
             // Build the row content - consistent column layout
             // 2 columns always: [tree+name] [duration]
             // 3 columns with waterfall: [tree+name] [waterfall bar] [duration]
             const rowContent = () => {
               const selector = isSelected() ? "> " : "  ";
               const prefix = getTreePrefix(node, props.expandedSpanIds);
+              // Duration must be computed inside reactive function to update when span changes
+              const duration = formatDuration(span);
 
               const TREE_NAME_WIDTH = 24; // Fixed width for tree prefix + span name combined
               const DURATION_WIDTH = 10; // Fixed width for duration
@@ -411,6 +412,8 @@ export function SpanTreeView(props: {
 
               if (props.showWaterfall && props.waterfallBarWidth) {
                 // With waterfall bar
+                // Use endTime to determine if span is still running (more reliable than status)
+                const isRunning = span.endTime === null;
                 const { startOffset, endOffset } = getWaterfallOffsets(
                   span,
                   node,
@@ -419,7 +422,7 @@ export function SpanTreeView(props: {
                   startOffset,
                   endOffset,
                   props.waterfallBarWidth,
-                  span.status === "running",
+                  isRunning,
                   node.depth === 0,
                 );
 
