@@ -4,6 +4,7 @@
  */
 
 import { ClientsSection } from "./clientsSection";
+import { theme } from "./theme";
 import { SpansSection } from "./spansSection";
 import { MetricsSection } from "./metricsSection";
 import { useStore } from "./store";
@@ -41,7 +42,7 @@ export function ObservabilityTab() {
         height={1}
         flexShrink={0}
         border={["bottom"]}
-        borderColor="#30363D"
+        borderColor={theme.bgSelected}
       />
 
       {/* Spans Section - fills remaining space above metrics */}

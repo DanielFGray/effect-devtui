@@ -4,6 +4,7 @@
  */
 
 import { createSignal, createEffect } from "solid-js";
+import { theme } from "./theme";
 import { useStore } from "./store";
 
 interface SpanFilterInputProps {
@@ -34,13 +35,13 @@ export function SpanFilterInput(props: SpanFilterInputProps) {
       flexDirection="row"
       width="100%"
       padding={1}
-      backgroundColor="#24283b"
+      backgroundColor={theme.bgHighlight}
       border={["bottom"]}
-      borderColor="#30363D"
+      borderColor={theme.bgSelected}
     >
-      <text style={{ fg: "#7aa2f7", marginRight: 1 }}>Filter:</text>
-      <text style={{ fg: "#c0caf5", flexGrow: 1 }}>{displayText()}</text>
-      <text style={{ fg: "#565f89", marginLeft: 1 }}>
+      <text style={{ fg: theme.primary, marginRight: 1 }}>Filter:</text>
+      <text style={{ fg: theme.text, flexGrow: 1 }}>{displayText()}</text>
+      <text style={{ fg: theme.muted, marginLeft: 1 }}>
         {store.ui.spanFilterQuery
           ? `[${store.ui.spanFilterQuery.length}]`
           : "[0]"}

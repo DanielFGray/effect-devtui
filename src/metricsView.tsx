@@ -4,6 +4,7 @@
  */
 
 import { For, Show, createMemo } from "solid-js";
+import { theme } from "./theme";
 
 import type { SimpleMetric } from "./store";
 
@@ -46,17 +47,17 @@ function getMetricIcon(type: SimpleMetric["type"]): string {
 function getMetricColor(type: SimpleMetric["type"]): string {
   switch (type) {
     case "Counter":
-      return "#9ece6a";
+      return theme.success;
     case "Gauge":
-      return "#7aa2f7";
+      return theme.primary;
     case "Histogram":
-      return "#e0af68";
+      return theme.warning;
     case "Frequency":
-      return "#bb9af7";
+      return theme.secondary;
     case "Summary":
-      return "#f7768e";
+      return theme.error;
     default:
-      return "#c0caf5";
+      return theme.text;
   }
 }
 
@@ -76,8 +77,8 @@ export function MetricsView(props: {
             props.selectedMetricName === metric.name;
 
           const color = () =>
-            isSelected() ? "#1a1b26" : getMetricColor(metric.type);
-          const bg = () => (isSelected() ? "#7aa2f7" : undefined);
+            isSelected() ? theme.bg : getMetricColor(metric.type);
+          const bg = () => (isSelected() ? theme.primary : undefined);
 
           return (
             <text style={{ fg: color(), bg: bg() }}>
@@ -107,7 +108,7 @@ export function MetricDetailsPanel(props: {
     <Show
       when={selectedMetric() !== null}
       fallback={
-        <text style={{ fg: "#565f89" }}>Select a metric to view details</text>
+        <text style={{ fg: theme.muted }}>Select a metric to view details</text>
       }
     >
       {(() => {
@@ -115,25 +116,25 @@ export function MetricDetailsPanel(props: {
 
         return (
           <box flexDirection="column" width="100%">
-            <text style={{ fg: "#7aa2f7" }} marginBottom={1}>
+            <text style={{ fg: theme.primary }} marginBottom={1}>
               {metric.name}
             </text>
 
-            <text style={{ fg: "#c0caf5" }} marginBottom={1}>
+            <text style={{ fg: theme.text }} marginBottom={1}>
               {`Type: ${metric.type}`}
             </text>
 
-            <text style={{ fg: "#c0caf5" }} marginBottom={1}>
+            <text style={{ fg: theme.text }} marginBottom={1}>
               {`Value: ${formatMetricValue(metric)}`}
             </text>
 
             <Show when={Object.keys(metric.tags).length > 0}>
-              <text style={{ fg: "#7aa2f7" }} marginTop={1}>
+              <text style={{ fg: theme.primary }} marginTop={1}>
                 Tags:
               </text>
               <For each={Object.entries(metric.tags)}>
                 {([key, value]) => (
-                  <text style={{ fg: "#9ece6a" }}>{`  ${key}: ${value}`}</text>
+                  <text style={{ fg: theme.success }}>{`  ${key}: ${value}`}</text>
                 )}
               </For>
             </Show>
@@ -141,12 +142,12 @@ export function MetricDetailsPanel(props: {
             <Show
               when={metric.details && Object.keys(metric.details).length > 0}
             >
-              <text style={{ fg: "#7aa2f7" }} marginTop={1}>
+              <text style={{ fg: theme.primary }} marginTop={1}>
                 Details:
               </text>
               <For each={Object.entries(metric.details || {})}>
                 {([key, value]) => (
-                  <text style={{ fg: "#e0af68" }}>
+                  <text style={{ fg: theme.warning }}>
                     {`  ${key}: ${typeof value === "number" ? value.toFixed(3) : value}`}
                   </text>
                 )}

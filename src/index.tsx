@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { render, useKeyboard, useRenderer } from "@opentui/solid";
+import { theme } from "./theme";
 import { Show, createMemo } from "solid-js";
 import { PORT, triggerLayerFix } from "./runtime";
 import { StoreProvider, useStore, type FocusedSection } from "./store";
@@ -29,9 +30,9 @@ function HelpOverlay() {
       flexDirection="column"
       width="100%"
       height="100%"
-      backgroundColor="#1a1b26"
+      backgroundColor={theme.bg}
     >
-      <text style={{ fg: "#7aa2f7" }} paddingLeft={2} paddingTop={1}>
+      <text style={{ fg: theme.primary }} paddingLeft={2} paddingTop={1}>
         Effect DevTools - Keyboard Shortcuts
       </text>
       <scrollbox
@@ -41,7 +42,7 @@ function HelpOverlay() {
         }}
         focused
       >
-        <text style={{ fg: "#c0caf5" }}>
+        <text style={{ fg: theme.text }}>
           {`Navigation:
   [Tab]        - Cycle focus: Clients → Spans → Metrics
   [j/k] or [↓/↑] - Navigate down/up in focused section
@@ -415,15 +416,15 @@ function AppContent() {
       <box
         height={1}
         width="100%"
-        backgroundColor="#1f2335"
+        backgroundColor={theme.bgAlt}
         paddingLeft={1}
         paddingRight={1}
       >
-        <text style={{ fg: "#7aa2f7" }}>Effect DevTools TUI</text>
+        <text style={{ fg: theme.primary }}>Effect DevTools TUI</text>
       </box>
 
       {/* Main Content - Two-Tab Layout */}
-      <box flexGrow={1} flexDirection="column" backgroundColor="#1a1b26">
+      <box flexGrow={1} flexDirection="column" backgroundColor={theme.bg}>
         <Show when={store.ui.showHelp}>
           <HelpOverlay />
         </Show>
@@ -442,9 +443,9 @@ function AppContent() {
       </box>
 
       {/* Footer/Status Bar - Context-sensitive */}
-      <box height={1} width="100%" backgroundColor="#414868" paddingLeft={1}>
+      <box height={1} width="100%" backgroundColor={theme.borderFocused} paddingLeft={1}>
         <Show when={store.ui.activeTab === "observability"}>
-          <text style={{ fg: "#c0caf5" }}>
+          <text style={{ fg: theme.text }}>
             {`${statusText()} | Port: ${PORT} | Clients: ${clientCount()} | Spans: ${spanCount()} | Metrics: ${metricCount()} | [1/2] Tab | [Tab] Focus | [?] Help | [:] Command | [q] Quit`}
           </text>
         </Show>
@@ -457,12 +458,12 @@ function AppContent() {
                 store.ui.layerAnalysisResults === null)
             }
           >
-            <text style={{ fg: "#c0caf5" }}>
+            <text style={{ fg: theme.text }}>
               [a] Analyze | [1/2] Tab | [?] Help | [q] Quit
             </text>
           </Show>
           <Show when={store.ui.layerAnalysisStatus === "analyzing"}>
-            <text style={{ fg: "#c0caf5" }}>Analyzing... | [q] Quit</text>
+            <text style={{ fg: theme.text }}>Analyzing... | [q] Quit</text>
           </Show>
           <Show
             when={
@@ -470,7 +471,7 @@ function AppContent() {
               store.ui.layerAnalysisResults !== null
             }
           >
-            <text style={{ fg: "#c0caf5" }}>
+            <text style={{ fg: theme.text }}>
               [Tab] Focus | [j/k] Nav | [Enter] Select | [g]{" "}
               {store.ui.showDependencyGraph ? "Hide" : "Show"} Graph | [p] Apply
               | [c] Clear | [?] Help
@@ -496,7 +497,7 @@ function App() {
 // Setup and mount app
 render(App, {
   consoleOptions: {
-    backgroundColor: "#1a1b26", // Match the main UI background
+    backgroundColor: theme.bg, // Match the main UI background
   },
   onDestroy: () => {
     // Ensure process exits after renderer cleanup

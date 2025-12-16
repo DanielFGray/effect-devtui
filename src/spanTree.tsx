@@ -4,6 +4,7 @@
  */
 
 import { For, Show, createMemo } from "solid-js";
+import { theme } from "./theme";
 
 import type { SimpleSpan } from "./store";
 
@@ -249,7 +250,7 @@ export function SpanTreeView(props: {
   return (
     <Show
       when={props.spans.length > 0}
-      fallback={<text style={{ fg: "#565f89" }}>No spans received yet</text>}
+      fallback={<text style={{ fg: theme.muted }}>No spans received yet</text>}
     >
       <box flexDirection="column" width="100%" padding={1}>
         <For each={visibleNodes()}>
@@ -262,7 +263,7 @@ export function SpanTreeView(props: {
               props.selectedSpanId === node.span!.spanId;
 
             const statusColor = () =>
-              node.span!.status === "running" ? "#e0af68" : "#9ece6a";
+              node.span!.status === "running" ? theme.warning : theme.success;
 
             const duration = formatDuration(node.span);
             const prefix = getTreePrefix(node, props.expandedSpanIds);
@@ -271,8 +272,8 @@ export function SpanTreeView(props: {
               <text
                 id={node.span.spanId}
                 style={{
-                  fg: isSelected() ? "#1a1b26" : statusColor(),
-                  bg: isSelected() ? "#7aa2f7" : undefined,
+                  fg: isSelected() ? theme.bg : statusColor(),
+                  bg: isSelected() ? theme.primary : undefined,
                 }}
               >
                 {`${isSelected() ? "> " : "  "}${prefix}${node.span.name}${duration ? ` (${duration})` : ""}`}
@@ -302,7 +303,7 @@ export function SpanDetailsPanel(props: {
     <Show
       when={selectedSpan() !== null}
       fallback={
-        <text style={{ fg: "#565f89" }}>
+        <text style={{ fg: theme.muted }}>
           {`Select a span with j/k\nPress Enter to expand`}
         </text>
       }
@@ -316,35 +317,35 @@ export function SpanDetailsPanel(props: {
         return (
           <box flexDirection="column" width="100%" padding={1}>
             {/* Span Name Header */}
-            <text style={{ fg: "#7aa2f7" }} marginBottom={1}>
+            <text style={{ fg: theme.primary }} marginBottom={1}>
               {span.name}
             </text>
 
             {/* IDs Section */}
-            <text style={{ fg: "#9ece6a" }}>IDs:</text>
-            <text style={{ fg: "#c0caf5" }} marginLeft={1}>
+            <text style={{ fg: theme.success }}>IDs:</text>
+            <text style={{ fg: theme.text }} marginLeft={1}>
               {`Span:  ${span.spanId}`}
             </text>
-            <text style={{ fg: "#c0caf5" }} marginLeft={1} marginBottom={1}>
+            <text style={{ fg: theme.text }} marginLeft={1} marginBottom={1}>
               {`Trace: ${span.traceId}`}
             </text>
 
             {/* Status Section */}
             <text
               style={{
-                fg: span.status === "running" ? "#e0af68" : "#9ece6a",
+                fg: span.status === "running" ? theme.warning : theme.success,
               }}
             >
               {`Status: ${span.status}${durationMs !== null ? ` (${formatDuration(span)})` : ""}`}
             </text>
 
             <Show when={span.parent}>
-              <text style={{ fg: "#565f89" }}>{`Parent: ${span.parent}`}</text>
+              <text style={{ fg: theme.muted }}>{`Parent: ${span.parent}`}</text>
             </Show>
 
             {/* Events Section */}
             <Show when={eventCount > 0}>
-              <text style={{ fg: "#9ece6a" }} marginTop={1}>
+              <text style={{ fg: theme.success }} marginTop={1}>
                 {`Events: ${eventCount}`}
               </text>
               <For each={span.events.slice(0, 5)}>
@@ -357,7 +358,7 @@ export function SpanDetailsPanel(props: {
 
                   return (
                     <box flexDirection="column" marginLeft={1}>
-                      <text style={{ fg: "#f7768e" }}>
+                      <text style={{ fg: theme.error }}>
                         {`+${relativeTimeMs.toFixed(2)}ms: ${event.name}`}
                       </text>
                       <Show when={eventHasAttrs}>
@@ -367,7 +368,7 @@ export function SpanDetailsPanel(props: {
                           {([key, value]) => {
                             const valueStr = formatAttributeValue(value);
                             return (
-                              <text style={{ fg: "#565f89" }} marginLeft={1}>
+                              <text style={{ fg: theme.muted }} marginLeft={1}>
                                 {`${key}: ${valueStr}`}
                               </text>
                             );
@@ -379,7 +380,7 @@ export function SpanDetailsPanel(props: {
                 }}
               </For>
               <Show when={eventCount > 5}>
-                <text style={{ fg: "#565f89" }} marginLeft={1}>
+                <text style={{ fg: theme.muted }} marginLeft={1}>
                   {`... and ${eventCount - 5} more`}
                 </text>
               </Show>
@@ -387,21 +388,21 @@ export function SpanDetailsPanel(props: {
 
             {/* Attributes Section */}
             <Show when={attrCount > 0}>
-              <text style={{ fg: "#9ece6a" }} marginTop={1}>
+              <text style={{ fg: theme.success }} marginTop={1}>
                 {`Attributes: ${attrCount}`}
               </text>
               <For each={Object.entries(span.attributes).slice(0, 8)}>
                 {([key, value]) => {
                   const valueStr = formatAttributeValue(value);
                   return (
-                    <text style={{ fg: "#bb9af7" }} marginLeft={1}>
+                    <text style={{ fg: theme.secondary }} marginLeft={1}>
                       {`${key}: ${valueStr}`}
                     </text>
                   );
                 }}
               </For>
               <Show when={attrCount > 8}>
-                <text style={{ fg: "#565f89" }} marginLeft={1}>
+                <text style={{ fg: theme.muted }} marginLeft={1}>
                   {`... and ${attrCount - 8} more`}
                 </text>
               </Show>

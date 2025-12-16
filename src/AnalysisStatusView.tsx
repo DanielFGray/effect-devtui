@@ -5,16 +5,9 @@
  */
 
 import { Show } from "solid-js";
+import { theme } from "./theme";
 import { useStore } from "./store";
 
-// Colors (Tokyo Night theme)
-const COLORS = {
-  text: "#c0caf5",
-  muted: "#565f89",
-  success: "#9ece6a",
-  warning: "#e0af68",
-  error: "#f7768e",
-} as const;
 
 export function AnalysisStatusView() {
   const { store } = useStore();
@@ -27,29 +20,29 @@ export function AnalysisStatusView() {
           store.ui.layerAnalysisResults === null
         }
       >
-        <text style={{ fg: COLORS.text }} marginBottom={2}>
+        <text style={{ fg: theme.text }} marginBottom={2}>
           No analysis performed yet
         </text>
-        <text style={{ fg: COLORS.muted }} marginBottom={1}>
+        <text style={{ fg: theme.muted }} marginBottom={1}>
           Press [a] to analyze project
         </text>
-        <text style={{ fg: COLORS.muted }}>Press [?] for help</text>
+        <text style={{ fg: theme.muted }}>Press [?] for help</text>
       </Show>
 
       <Show when={store.ui.layerAnalysisStatus === "analyzing"}>
-        <text style={{ fg: COLORS.warning }} marginBottom={2}>
+        <text style={{ fg: theme.warning }} marginBottom={2}>
           Analyzing project...
         </text>
-        <text style={{ fg: COLORS.muted }} marginBottom={1}>
+        <text style={{ fg: theme.muted }} marginBottom={1}>
           - Searching for tsconfig.json
         </text>
-        <text style={{ fg: COLORS.muted }} marginBottom={1}>
+        <text style={{ fg: theme.muted }} marginBottom={1}>
           - Scanning TypeScript diagnostics
         </text>
-        <text style={{ fg: COLORS.muted }} marginBottom={1}>
+        <text style={{ fg: theme.muted }} marginBottom={1}>
           - Finding layer definitions
         </text>
-        <text style={{ fg: COLORS.muted }}>- Resolving dependencies</text>
+        <text style={{ fg: theme.muted }}>- Resolving dependencies</text>
       </Show>
 
       <Show
@@ -58,26 +51,26 @@ export function AnalysisStatusView() {
           store.ui.layerAnalysisResults === null
         }
       >
-        <text style={{ fg: COLORS.success }} marginBottom={2}>
+        <text style={{ fg: theme.success }} marginBottom={2}>
           No missing requirements found!
         </text>
-        <text style={{ fg: COLORS.text }} marginBottom={2}>
+        <text style={{ fg: theme.text }} marginBottom={2}>
           All Effect layers are properly provided in your project.
         </text>
-        <text style={{ fg: COLORS.muted }}>Press [a] to re-analyze</text>
+        <text style={{ fg: theme.muted }}>Press [a] to re-analyze</text>
       </Show>
 
       <Show when={store.ui.layerAnalysisStatus === "error"}>
-        <text style={{ fg: COLORS.error }} marginBottom={2}>
+        <text style={{ fg: theme.error }} marginBottom={2}>
           Analysis failed
         </text>
-        <text style={{ fg: COLORS.text }} marginBottom={2}>
+        <text style={{ fg: theme.text }} marginBottom={2}>
           {store.ui.layerAnalysisError || "Unknown error occurred"}
         </text>
-        <text style={{ fg: COLORS.muted }} marginBottom={1}>
+        <text style={{ fg: theme.muted }} marginBottom={1}>
           Press [a] to retry
         </text>
-        <text style={{ fg: COLORS.muted }}>Press [?] for help</text>
+        <text style={{ fg: theme.muted }}>Press [?] for help</text>
       </Show>
     </box>
   );

@@ -4,6 +4,7 @@
  */
 
 import { Show, createMemo } from "solid-js";
+import { theme } from "./theme";
 import { useStore, type FocusedSection } from "./store";
 import { MetricsView, MetricDetailsPanel } from "./metricsView";
 import { ResizableBox } from "./resizableBox";
@@ -15,7 +16,7 @@ function getSectionHeaderColor(
   focusedSection: FocusedSection,
   section: FocusedSection,
 ): string {
-  return focusedSection === section ? "#7aa2f7" : "#565f89";
+  return focusedSection === section ? theme.primary : theme.muted;
 }
 
 /**
@@ -65,14 +66,14 @@ export function MetricsSection() {
             style={{
               rootOptions: {
                 border: ["left"],
-                borderColor: "#30363D",
+                borderColor: theme.bgSelected,
               },
             }}
           >
             <Show
               when={store.ui.selectedMetricName !== null}
               fallback={
-                <text style={{ fg: "#565f89" }}>
+                <text style={{ fg: theme.muted }}>
                   {`Select a metric\nwith j/k`}
                 </text>
               }

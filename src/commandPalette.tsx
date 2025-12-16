@@ -4,6 +4,7 @@
  */
 
 import { For, Show, createMemo, createEffect } from "solid-js";
+import { theme } from "./theme";
 import { useStore } from "./store";
 import { getCommands, filterCommands } from "./commands";
 import { useTerminalDimensions } from "@opentui/solid";
@@ -68,13 +69,13 @@ export function CommandPalette() {
           width={60}
           maxWidth={dimensions().width - 2}
           flexDirection="column"
-          backgroundColor="#1a1b26"
+          backgroundColor={theme.bg}
           border={["top", "bottom", "left", "right"]}
-          borderColor="#414868"
+          borderColor={theme.borderFocused}
           paddingTop={1}
         >
           {/* Header */}
-          <text style={{ fg: "#7aa2f7" }} paddingLeft={2} marginBottom={1}>
+          <text style={{ fg: theme.primary }} paddingLeft={2} marginBottom={1}>
             Command Palette
           </text>
 
@@ -87,12 +88,12 @@ export function CommandPalette() {
               }}
               onInput={(value) => actions.setCommandPaletteQuery(value)}
               placeholder="Search commands..."
-              placeholderColor="#565f89"
-              focusedBackgroundColor="#1a1b26"
-              focusedTextColor="#c0caf5"
-              cursorColor="#7aa2f7"
-              backgroundColor="#1a1b26"
-              textColor="#c0caf5"
+              placeholderColor={theme.muted}
+              focusedBackgroundColor={theme.bg}
+              focusedTextColor={theme.text}
+              cursorColor={theme.primary}
+              backgroundColor={theme.bg}
+              textColor={theme.text}
             />
           </box>
 
@@ -109,7 +110,7 @@ export function CommandPalette() {
             <Show
               when={filteredCommands().length > 0}
               fallback={
-                <text style={{ fg: "#565f89" }}>No commands found</text>
+                <text style={{ fg: theme.muted }}>No commands found</text>
               }
             >
               <For each={filteredCommands()}>
@@ -122,17 +123,17 @@ export function CommandPalette() {
                       id={`command-${index()}`}
                       flexDirection="row"
                       justifyContent="space-between"
-                      backgroundColor={isSelected() ? "#414868" : undefined}
+                      backgroundColor={isSelected() ? theme.borderFocused : undefined}
                     >
                       <text
                         style={{
-                          fg: isSelected() ? "#7aa2f7" : "#c0caf5",
+                          fg: isSelected() ? theme.primary : theme.text,
                         }}
                       >
                         {`${isSelected() ? "> " : "  "}${command.label}`}
                       </text>
                       <Show when={command.shortcut}>
-                        <text style={{ fg: "#565f89" }}>
+                        <text style={{ fg: theme.muted }}>
                           {`[${command.shortcut}]`}
                         </text>
                       </Show>
@@ -147,10 +148,10 @@ export function CommandPalette() {
           <box
             paddingTop={1}
             paddingLeft={2}
-            borderColor="#30363D"
+            borderColor={theme.bgSelected}
             border={["top"]}
           >
-            <text style={{ fg: "#565f89" }}>
+            <text style={{ fg: theme.muted }}>
               {`↑/↓ Navigate • Enter Execute • Esc Close`}
             </text>
           </box>

@@ -4,6 +4,7 @@
  */
 
 import { For, Show } from "solid-js";
+import { theme } from "./theme";
 import type { Client } from "./server";
 import { PORT } from "./runtime";
 
@@ -21,28 +22,28 @@ export function ClientDropdown(props: {
       <Show
         when={props.clients.length > 0}
         fallback={
-          <text style={{ fg: "#565f89" }}>
+          <text style={{ fg: theme.muted }}>
             No clients connected (port {PORT})
           </text>
         }
       >
         {/* Collapsed view: show only selected client */}
         <Show when={!props.isExpanded}>
-          <text style={{ fg: "#7aa2f7" }}>
+          <text style={{ fg: theme.primary }}>
             {`▶ ${selectedClient()?.name || "Unknown"} (${props.clients.length} total)`}
           </text>
         </Show>
 
         {/* Expanded view: show all clients */}
         <Show when={props.isExpanded}>
-          <text style={{ fg: "#565f89" }} marginBottom={1}>
+          <text style={{ fg: theme.muted }} marginBottom={1}>
             {`▼ Clients (${props.clients.length})`}
           </text>
           <For each={props.clients}>
             {(client, index) => {
               const isSelected = () => index() === props.selectedClientIndex;
               return (
-                <text style={{ fg: isSelected() ? "#7aa2f7" : "#9ece6a" }}>
+                <text style={{ fg: isSelected() ? theme.primary : theme.success }}>
                   {`  ${isSelected() ? ">" : " "} [${index() + 1}] ${client.name}`}
                 </text>
               );

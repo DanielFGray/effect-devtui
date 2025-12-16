@@ -4,6 +4,7 @@
  */
 
 import { Show, createMemo, createEffect, onMount } from "solid-js";
+import { theme } from "./theme";
 import * as Option from "effect/Option";
 import { useStore, type FocusedSection } from "./store";
 import { SpanTreeView, SpanDetailsPanel } from "./spanTree";
@@ -17,7 +18,7 @@ function getSectionHeaderColor(
   focusedSection: FocusedSection,
   section: FocusedSection,
 ): string {
-  return focusedSection === section ? "#7aa2f7" : "#565f89";
+  return focusedSection === section ? theme.primary : theme.muted;
 }
 
 /**
@@ -104,7 +105,7 @@ export function SpansSection() {
           paddingBottom={1}
           flexShrink={0}
         >
-          <text style={{ fg: "#f7768e" }}>
+          <text style={{ fg: theme.error }}>
             {`Filter: "${store.ui.spanFilterQuery}" (press / to edit, Esc to clear)`}
           </text>
         </box>
@@ -133,14 +134,14 @@ export function SpansSection() {
           style={{
             rootOptions: {
               border: ["left"],
-              borderColor: "#30363D",
+              borderColor: theme.bgSelected,
             },
           }}
         >
           <Show
             when={store.ui.selectedSpanId !== null}
             fallback={
-              <text style={{ fg: "#565f89" }}>
+              <text style={{ fg: theme.muted }}>
                 {`Select a span with j/k\nPress → to expand or Enter`}
               </text>
             }

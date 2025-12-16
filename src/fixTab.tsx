@@ -7,6 +7,7 @@
  */
 
 import { Show, createMemo } from "solid-js";
+import { theme } from "./theme";
 import { useStore } from "./store";
 import { AnalysisStatusView } from "./AnalysisStatusView";
 import { ServicesListPanel } from "./ServicesListPanel";
@@ -46,7 +47,7 @@ export function FixTab() {
       flexDirection="column"
       width="100%"
       height="100%"
-      backgroundColor="#1a1b26"
+      backgroundColor={theme.bg}
     >
       {/* Status view for non-results states */}
       <Show when={showStatusView()}>
@@ -63,7 +64,7 @@ export function FixTab() {
               height="60%"
               width="100%"
               border={["bottom"]}
-              borderColor="#30363D"
+              borderColor={theme.bgSelected}
             >
               <DependencyGraphPanel />
             </box>

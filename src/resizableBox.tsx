@@ -6,6 +6,7 @@
  */
 
 import { type JSX, children as solidChildren, useContext } from "solid-js";
+import { theme } from "./theme";
 import {
   BoxRenderable,
   type MouseEvent,
@@ -49,7 +50,7 @@ class DragHandle extends BoxRenderable {
     super(ctx, {
       height: 1,
       width: "100%",
-      backgroundColor: RGBA.fromHex("#30363D"),
+      backgroundColor: RGBA.fromHex(theme.bgSelected),
       border: false,
     });
     this._minHeight = minHeight;
@@ -64,11 +65,11 @@ class DragHandle extends BoxRenderable {
 
     // Draw the separator line
     const color = this.isDragging
-      ? RGBA.fromHex("#7aa2f7")
-      : RGBA.fromHex("#565f89");
+      ? RGBA.fromHex(theme.primary)
+      : RGBA.fromHex(theme.muted);
     const bg = this.isDragging
-      ? RGBA.fromHex("#7aa2f7")
-      : RGBA.fromHex("#30363D");
+      ? RGBA.fromHex(theme.primary)
+      : RGBA.fromHex(theme.bgSelected);
 
     for (let x = 0; x < this.width; x++) {
       buffer.drawText("═", this.x + x, this.y, color, bg);

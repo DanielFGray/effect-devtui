@@ -5,19 +5,9 @@
  */
 
 import { Show, For, createMemo } from "solid-js";
+import { theme } from "./theme";
 import { useStore } from "./store";
 
-// Colors (Tokyo Night theme)
-const COLORS = {
-  primary: "#7aa2f7",
-  text: "#c0caf5",
-  muted: "#565f89",
-  success: "#9ece6a",
-  warning: "#e0af68",
-  background: "#1a1b26",
-  backgroundSelected: "#30363D",
-  border: "#30363D",
-} as const;
 
 export function LayerCandidatesPanel() {
   const { store } = useStore();
@@ -47,23 +37,23 @@ export function LayerCandidatesPanel() {
       paddingLeft={1}
       paddingRight={1}
       border={["left"]}
-      borderColor={COLORS.border}
+      borderColor={theme.border}
     >
       <text
-        style={{ fg: isFocused() ? COLORS.primary : COLORS.muted }}
+        style={{ fg: isFocused() ? theme.primary : theme.muted }}
         marginBottom={1}
       >
         {isFocused() ? "> Layer Candidates" : "  Layer Candidates"}
       </text>
 
       <Show when={!selectedService()}>
-        <text style={{ fg: COLORS.muted }}>
+        <text style={{ fg: theme.muted }}>
           Select a service to view options
         </text>
       </Show>
 
       <Show when={selectedService()}>
-        <text style={{ fg: COLORS.text }} marginBottom={1}>
+        <text style={{ fg: theme.text }} marginBottom={1}>
           {`Options for ${selectedService()?.service}:`}
         </text>
 
@@ -78,14 +68,14 @@ export function LayerCandidatesPanel() {
                 layer.name,
             );
             const bgColor = createMemo(() =>
-              isHighlighted() ? COLORS.backgroundSelected : COLORS.background,
+              isHighlighted() ? theme.bgSelected : theme.bg,
             );
             const fgColor = createMemo(() =>
               isSelected()
-                ? COLORS.success
+                ? theme.success
                 : isHighlighted()
-                  ? COLORS.primary
-                  : COLORS.text,
+                  ? theme.primary
+                  : theme.text,
             );
             const prefix = createMemo(() =>
               isSelected() ? "[x] " : isHighlighted() ? "> " : "  ",
@@ -108,11 +98,11 @@ export function LayerCandidatesPanel() {
                   {`${prefix()}${layer.name}`}
                 </text>
                 <Show when={isHighlighted()}>
-                  <text style={{ fg: COLORS.muted }} marginBottom={1}>
+                  <text style={{ fg: theme.muted }} marginBottom={1}>
                     {`  ${layer.file.split("/").pop()}:${layer.line}`}
                   </text>
                   <Show when={layer.requires && layer.requires.length > 0}>
-                    <text style={{ fg: COLORS.warning }}>
+                    <text style={{ fg: theme.warning }}>
                       {`  Requires: ${layer.requires.join(", ")}`}
                     </text>
                   </Show>

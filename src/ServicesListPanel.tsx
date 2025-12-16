@@ -5,17 +5,9 @@
  */
 
 import { Show, For, createMemo } from "solid-js";
+import { theme } from "./theme";
 import { useStore } from "./store";
 
-// Colors (Tokyo Night theme)
-const COLORS = {
-  primary: "#7aa2f7",
-  text: "#c0caf5",
-  muted: "#565f89",
-  success: "#9ece6a",
-  background: "#1a1b26",
-  backgroundSelected: "#30363D",
-} as const;
 
 export function ServicesListPanel() {
   const { store } = useStore();
@@ -33,14 +25,14 @@ export function ServicesListPanel() {
   return (
     <box flexDirection="column" flexGrow={1}>
       <text
-        style={{ fg: isFocused() ? COLORS.primary : COLORS.muted }}
+        style={{ fg: isFocused() ? theme.primary : theme.muted }}
         marginBottom={1}
       >
         {isFocused() ? "> Missing Services" : "  Missing Services"}
       </text>
 
       <Show when={candidates().length === 0}>
-        <text style={{ fg: COLORS.muted }}>No missing services found</text>
+        <text style={{ fg: theme.muted }}>No missing services found</text>
       </Show>
 
       <Show when={candidates().length > 0}>
@@ -48,10 +40,10 @@ export function ServicesListPanel() {
           {(candidate, idx) => {
             const isSelected = createMemo(() => idx() === selectedIndex());
             const bgColor = createMemo(() =>
-              isSelected() ? COLORS.backgroundSelected : COLORS.background,
+              isSelected() ? theme.bgSelected : theme.bg,
             );
             const fgColor = createMemo(() =>
-              isSelected() ? COLORS.primary : COLORS.text,
+              isSelected() ? theme.primary : theme.text,
             );
             const selectedLayer = createMemo(() =>
               layerSelections().get(candidate.service),
@@ -76,14 +68,14 @@ export function ServicesListPanel() {
                 </text>
                 <Show when={selectedLayer()}>
                   <text
-                    style={{ fg: COLORS.success }}
+                    style={{ fg: theme.success }}
                     marginBottom={isSelected() ? 1 : 0}
                   >
                     {`  -> ${selectedLayer()}`}
                   </text>
                 </Show>
                 <Show when={isSelected()}>
-                  <text style={{ fg: COLORS.muted }}>
+                  <text style={{ fg: theme.muted }}>
                     {`  ${layerCount} option${layerCount > 1 ? "s" : ""} available`}
                   </text>
                 </Show>

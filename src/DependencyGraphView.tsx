@@ -5,6 +5,7 @@
  */
 
 import { createMemo, For, Show } from "solid-js";
+import { theme } from "./theme";
 import { useStore } from "./store";
 import type { LayerDefinition } from "./layerResolverCore";
 import {
@@ -14,16 +15,6 @@ import {
   findOrphans,
 } from "./dependencyGraph";
 
-// Colors (Tokyo Night theme)
-const COLORS = {
-  primary: "#7aa2f7",
-  success: "#9ece6a",
-  warning: "#e0af68",
-  error: "#f7768e",
-  text: "#c0caf5",
-  muted: "#565f89",
-  background: "#1a1b26",
-} as const;
 
 interface DependencyGraphViewProps {
   layers: LayerDefinition[];
@@ -44,7 +35,7 @@ function GraphHeader(props: {
   return (
     <box flexDirection="column" marginBottom={1}>
       <box flexDirection="row" gap={2}>
-        <text style={{ fg: props.focused ? COLORS.primary : COLORS.muted }}>
+        <text style={{ fg: props.focused ? theme.primary : theme.muted }}>
           {props.focused ? "> " : "  "}Dependency Graph ({props.layerCount}{" "}
           layers)
         </text>
@@ -52,17 +43,17 @@ function GraphHeader(props: {
 
       <box flexDirection="row" gap={3} marginTop={1}>
         <Show when={props.cycleCount > 0}>
-          <text style={{ fg: COLORS.error }}>
+          <text style={{ fg: theme.error }}>
             * {props.cycleCount} circular dep{props.cycleCount > 1 ? "s" : ""}
           </text>
         </Show>
         <Show when={props.orphanCount > 0}>
-          <text style={{ fg: COLORS.warning }}>
+          <text style={{ fg: theme.warning }}>
             ? {props.orphanCount} orphan{props.orphanCount > 1 ? "s" : ""}
           </text>
         </Show>
         <Show when={props.cycleCount === 0 && props.orphanCount === 0}>
-          <text style={{ fg: COLORS.success }}>No issues detected</text>
+          <text style={{ fg: theme.success }}>No issues detected</text>
         </Show>
       </box>
     </box>
@@ -75,10 +66,10 @@ function GraphHeader(props: {
 function GraphLegend() {
   return (
     <box flexDirection="row" gap={3} marginBottom={1}>
-      <text style={{ fg: COLORS.muted }}>Legend:</text>
-      <text style={{ fg: COLORS.error }}>* Cycle</text>
-      <text style={{ fg: COLORS.warning }}>? Orphan</text>
-      <text style={{ fg: COLORS.text }}>--- Provides</text>
+      <text style={{ fg: theme.muted }}>Legend:</text>
+      <text style={{ fg: theme.error }}>* Cycle</text>
+      <text style={{ fg: theme.warning }}>? Orphan</text>
+      <text style={{ fg: theme.text }}>--- Provides</text>
     </box>
   );
 }
@@ -98,10 +89,10 @@ function GraphLine(props: {
 
   const color =
     hasCycleMarker || hasAsterisk
-      ? COLORS.error
+      ? theme.error
       : hasOrphanMarker
-        ? COLORS.warning
-        : COLORS.text;
+        ? theme.warning
+        : theme.text;
 
   return <text style={{ fg: color }}>{props.line}</text>;
 }
@@ -215,10 +206,10 @@ export function DependencyGraphPanel() {
           paddingLeft={2}
           paddingTop={2}
         >
-          <text style={{ fg: COLORS.text }} marginBottom={2}>
+          <text style={{ fg: theme.text }} marginBottom={2}>
             No layer data available
           </text>
-          <text style={{ fg: COLORS.muted }}>
+          <text style={{ fg: theme.muted }}>
             Run analysis first with [a] to discover layers
           </text>
         </box>

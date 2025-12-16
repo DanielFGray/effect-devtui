@@ -4,6 +4,7 @@
  */
 
 import { For, Show } from "solid-js";
+import { theme } from "./theme";
 import type { Client } from "./server";
 import { PORT } from "./runtime";
 
@@ -21,8 +22,8 @@ export function ClientsView(props: {
         when={props.clients.length > 0}
         fallback={
           <box flexDirection="column">
-            <text style={{ fg: "#565f89" }}>No clients connected</text>
-            <text style={{ fg: "#565f89" }} marginTop={1}>
+            <text style={{ fg: theme.muted }}>No clients connected</text>
+            <text style={{ fg: theme.muted }} marginTop={1}>
               {`Waiting on port ${PORT}...`}
             </text>
           </box>
@@ -32,7 +33,7 @@ export function ClientsView(props: {
           {(client, index) => {
             const isSelected = () => index() === props.selectedClientIndex;
             return (
-              <text style={{ fg: isSelected() ? "#7aa2f7" : "#9ece6a" }}>
+              <text style={{ fg: isSelected() ? theme.primary : theme.success }}>
                 {`${isSelected() ? ">" : " "} [${index() + 1}] ${client.name}`}
               </text>
             );

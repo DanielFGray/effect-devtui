@@ -4,6 +4,7 @@
  */
 
 import { createMemo } from "solid-js";
+import { theme } from "./theme";
 import { useStore, type FocusedSection } from "./store";
 import { ClientDropdown } from "./clientDropdown";
 
@@ -14,7 +15,7 @@ function getSectionHeaderColor(
   focusedSection: FocusedSection,
   section: FocusedSection,
 ): string {
-  return focusedSection === section ? "#7aa2f7" : "#565f89";
+  return focusedSection === section ? theme.primary : theme.muted;
 }
 
 /**
