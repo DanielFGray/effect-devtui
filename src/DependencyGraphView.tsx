@@ -1,7 +1,7 @@
 /**
  * Dependency Graph View Component
  *
- * Displays the Effect Layer dependency graph using ASCII art with dagre layout.
+ * Displays the Effect Layer dependency graph using ASCII art via Mermaid rendering.
  */
 
 import { createMemo, For, Show } from "solid-js";
