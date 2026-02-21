@@ -150,8 +150,12 @@ export interface UIState {
 }
 
 export interface StoreState {
+  serverSpans: SimpleSpan[];
+  serverMetrics: SimpleMetric[];
   spans: SimpleSpan[];
   metrics: SimpleMetric[];
+  spansByClient: Record<number, SimpleSpan[]>;
+  metricsByClient: Record<number, SimpleMetric[]>;
   clients: Client[];
   activeClient: Option.Option<Client>;
   serverStatus: "starting" | "listening" | "connected";
@@ -161,9 +165,9 @@ export interface StoreState {
 
 export interface StoreActions {
   // Span actions
-  addSpan: (span: Domain.Span) => void;
-  updateSpan: (span: Domain.Span) => void;
-  addSpanEvent: (event: Domain.SpanEvent) => void;
+  addSpan: (span: Domain.Span, clientId?: number) => void;
+  updateSpan: (span: Domain.Span, clientId?: number) => void;
+  addSpanEvent: (event: Domain.SpanEvent, clientId?: number) => void;
   clearSpans: () => void;
   selectSpan: (spanId: string | null) => void;
   selectTrace: (traceId: string | null) => void;
@@ -171,7 +175,7 @@ export interface StoreActions {
   toggleTraceExpanded: (traceId: string) => void;
 
   // Metric actions
-  updateMetrics: (snapshot: Domain.MetricsSnapshot) => void;
+  updateMetrics: (snapshot: Domain.MetricsSnapshot, clientId?: number) => void;
   clearMetrics: () => void;
   selectMetric: (name: string | null) => void;
 

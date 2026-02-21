@@ -190,13 +190,13 @@ const program = Effect.gen(function* () {
               console.log(
                 `[Runtime] Calling storeActions.addSpan for ${spanOrEvent.name}`,
               );
-              yield* storeActions.addSpan(spanOrEvent);
+              yield* storeActions.addSpan(spanOrEvent, client.id);
               console.log(`[Runtime] Called storeActions.addSpan successfully`);
             } else if (spanOrEvent._tag === "SpanEvent") {
               console.log(
                 `[Runtime] Calling storeActions.addSpanEvent for ${spanOrEvent.name}`,
               );
-              yield* storeActions.addSpanEvent(spanOrEvent);
+              yield* storeActions.addSpanEvent(spanOrEvent, client.id);
               console.log(
                 `[Runtime] Called storeActions.addSpanEvent successfully`,
               );
@@ -213,7 +213,7 @@ const program = Effect.gen(function* () {
         Stream.fromQueue(metricsQueue),
         (snapshot: Domain.MetricsSnapshot) =>
           Effect.gen(function* () {
-            yield* storeActions.updateMetrics(snapshot);
+            yield* storeActions.updateMetrics(snapshot, client.id);
           }),
       ).pipe(Effect.fork);
 

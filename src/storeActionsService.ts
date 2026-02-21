@@ -24,13 +24,22 @@ import type {
  */
 export interface StoreActionsService {
   // Span actions
-  readonly addSpan: (span: unknown) => Effect.Effect<void>;
-  readonly updateSpan: (span: unknown) => Effect.Effect<void>;
-  readonly addSpanEvent: (event: unknown) => Effect.Effect<void>;
+  readonly addSpan: (span: unknown, clientId?: number) => Effect.Effect<void>;
+  readonly updateSpan: (
+    span: unknown,
+    clientId?: number,
+  ) => Effect.Effect<void>;
+  readonly addSpanEvent: (
+    event: unknown,
+    clientId?: number,
+  ) => Effect.Effect<void>;
   readonly clearSpans: () => Effect.Effect<void>;
 
   // Metric actions
-  readonly updateMetrics: (snapshot: unknown) => Effect.Effect<void>;
+  readonly updateMetrics: (
+    snapshot: unknown,
+    clientId?: number,
+  ) => Effect.Effect<void>;
   readonly clearMetrics: () => Effect.Effect<void>;
 
   // Client actions
@@ -80,26 +89,26 @@ export const makeStoreActionsLayer = (
   actions: StoreActions,
 ): Layer.Layer<StoreActionsService> =>
   Layer.succeed(StoreActionsService, {
-    addSpan: (span: unknown) =>
+    addSpan: (span: unknown, clientId?: number) =>
       Effect.sync(() => {
-        actions.addSpan(span as any);
+        actions.addSpan(span as any, clientId);
       }),
-    updateSpan: (span: unknown) =>
+    updateSpan: (span: unknown, clientId?: number) =>
       Effect.sync(() => {
-        actions.updateSpan(span as any);
+        actions.updateSpan(span as any, clientId);
       }),
-    addSpanEvent: (event: unknown) =>
+    addSpanEvent: (event: unknown, clientId?: number) =>
       Effect.sync(() => {
-        actions.addSpanEvent(event as any);
+        actions.addSpanEvent(event as any, clientId);
       }),
     clearSpans: () =>
       Effect.sync(() => {
         actions.clearSpans();
       }),
 
-    updateMetrics: (snapshot: unknown) =>
+    updateMetrics: (snapshot: unknown, clientId?: number) =>
       Effect.sync(() => {
-        actions.updateMetrics(snapshot as any);
+        actions.updateMetrics(snapshot as any, clientId);
       }),
     clearMetrics: () =>
       Effect.sync(() => {
@@ -188,19 +197,19 @@ export const makeMockStoreActionsLayer = Effect.gen(function* () {
   });
 
   const service: StoreActionsService = {
-    addSpan: (span: unknown) =>
+    addSpan: (span: unknown, _clientId?: number) =>
       Ref.update(stateRef, (s) => ({ ...s, spans: [...s.spans, span] })),
-    updateSpan: (span: unknown) =>
+    updateSpan: (span: unknown, _clientId?: number) =>
       Ref.update(stateRef, (s) => ({
         ...s,
         spans: s.spans.map((existing: any) =>
           existing.spanId === (span as any).spanId ? span : existing,
         ),
       })),
-    addSpanEvent: () => Effect.void, // Simplified for mock
+    addSpanEvent: (_event: unknown, _clientId?: number) => Effect.void, // Simplified for mock
     clearSpans: () => Ref.update(stateRef, (s) => ({ ...s, spans: [] })),
 
-    updateMetrics: (snapshot: unknown) =>
+    updateMetrics: (snapshot: unknown, _clientId?: number) =>
       Ref.update(stateRef, (s) => ({
         ...s,
         metrics: (snapshot as any).metrics || [],

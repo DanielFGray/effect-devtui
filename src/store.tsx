@@ -183,8 +183,12 @@ export function StoreProvider(props: ParentProps) {
     `[Store] StoreProvider: Initializing new store instance at ${new Date().toISOString()}`,
   );
   const [store, setStore] = createStore<StoreState>({
+    serverSpans: [],
+    serverMetrics: [],
     spans: [],
     metrics: [],
+    spansByClient: {},
+    metricsByClient: {},
     clients: [],
     activeClient: Option.none(),
     serverStatus: "starting",
@@ -232,51 +236,49 @@ export function StoreProvider(props: ParentProps) {
     setStore("debugCounter", (c) => c + 1);
   }, 1000);
 
-  // Span buffer for batching updates
-  let spanBuffer: SimpleSpan[] = [];
-  let spanUpdateBuffer: Map<string, SimpleSpan> = new Map();
-  let eventBuffer: Map<string, SimpleSpanEvent[]> = new Map(); // Buffer events by spanId
+  let eventBuffer: Map<string, SimpleSpanEvent[]> = new Map();
 
-  const flushSpans = () => {
-    if (spanBuffer.length > 0 || spanUpdateBuffer.size > 0) {
-      const newSpans = [...spanBuffer];
-      const updates = new Map(spanUpdateBuffer);
-      spanBuffer = [];
-      spanUpdateBuffer = new Map();
+  const sourceKey = (clientId?: number) =>
+    `${clientId === undefined ? "server" : clientId}`;
 
-      // Use direct setStore path-based updates for better reactivity
-      // First, apply updates to existing spans
-      for (const [spanId, updatedSpan] of updates) {
-        const idx = store.spans.findIndex((s) => s.spanId === spanId);
-        if (idx >= 0) {
-          setStore("spans", idx, updatedSpan);
-        }
-      }
+  const isVisibleSource = (clientId?: number) =>
+    store.activeClient._tag === "Some"
+      ? clientId === store.activeClient.value.id
+      : clientId === undefined;
 
-      // Add new spans
-      if (newSpans.length > 0) {
-        const currentSpans = [...store.spans];
+  const getSourceSpans = (clientId?: number) =>
+    clientId === undefined
+      ? store.serverSpans
+      : (store.spansByClient[clientId] ?? []);
 
-        // Apply buffered events to new spans before adding them
-        for (const span of newSpans) {
-          const bufferedEvents = eventBuffer.get(span.spanId);
-          if (bufferedEvents && bufferedEvents.length > 0) {
-            span.events = bufferedEvents;
-            eventBuffer.delete(span.spanId);
-          }
-        }
+  const setSourceSpans = (nextSpans: SimpleSpan[], clientId?: number) => {
+    if (clientId === undefined) {
+      setStore("serverSpans", nextSpans);
+    } else {
+      setStore("spansByClient", clientId, nextSpans);
+    }
 
-        const allSpans = [...currentSpans, ...newSpans];
-
-        // No automatic pruning - let spans accumulate
-        // Users can press 'c' to clear spans manually when needed
-        setStore("spans", allSpans);
-      }
+    if (isVisibleSource(clientId)) {
+      setStore("spans", nextSpans);
     }
   };
 
-  // Flush spans periodically
-  setInterval(flushSpans, 100);
+  const getSourceMetrics = (clientId?: number) =>
+    clientId === undefined
+      ? store.serverMetrics
+      : (store.metricsByClient[clientId] ?? []);
+
+  const setSourceMetrics = (nextMetrics: SimpleMetric[], clientId?: number) => {
+    if (clientId === undefined) {
+      setStore("serverMetrics", nextMetrics);
+    } else {
+      setStore("metricsByClient", clientId, nextMetrics);
+    }
+
+    if (isVisibleSource(clientId)) {
+      setStore("metrics", nextMetrics);
+    }
+  };
 
   // Helper types for navigation
   type NavigableItem = { type: "span"; span: SimpleSpan };
@@ -348,51 +350,78 @@ export function StoreProvider(props: ParentProps) {
   };
 
   const actions: StoreActions = {
-    addSpan: (span: Domain.Span) => {
+    addSpan: (span: Domain.Span, clientId?: number) => {
       const simple = simplifySpan(span);
-      // Check if span already exists
-      const existing = store.spans.find((s) => s.spanId === simple.spanId);
-      console.log(
-        `[Store] addSpan: ${simple.name}, store has ${store.spans.length} spans, existing=${!!existing}`,
-      );
-      if (existing) {
-        spanUpdateBuffer.set(simple.spanId, simple);
-      } else {
-        spanBuffer.push(simple);
+      const spans = [...getSourceSpans(clientId)];
+      const idx = spans.findIndex((s) => s.spanId === simple.spanId);
+
+      const bufferedEvents = eventBuffer.get(`${sourceKey(clientId)}:${simple.spanId}`);
+      if (bufferedEvents && bufferedEvents.length > 0) {
+        simple.events = bufferedEvents;
+        eventBuffer.delete(`${sourceKey(clientId)}:${simple.spanId}`);
       }
-    },
-
-    updateSpan: (span: Domain.Span) => {
-      spanUpdateBuffer.set(span.spanId, simplifySpan(span));
-    },
-
-    addSpanEvent: (event: Domain.SpanEvent) => {
-      const spanId = event.spanId;
-      const simpleEvent = simplifySpanEvent(event);
-
-      // Try to find the span in the store
-      const idx = store.spans.findIndex((s) => s.spanId === spanId);
 
       if (idx >= 0) {
-        // Span exists, add event directly
-        console.log(
-          `[Store] addSpanEvent: Adding event "${simpleEvent.name}" to span ${spanId.substring(0, 8)}`,
-        );
-        setStore("spans", idx, "events", (events) => [...events, simpleEvent]);
+        spans[idx] = simple;
       } else {
-        // Span doesn't exist yet, buffer the event
-        console.log(
-          `[Store] addSpanEvent: Buffering event "${simpleEvent.name}" for span ${spanId.substring(0, 8)}`,
-        );
-        const buffered = eventBuffer.get(spanId) || [];
+        spans.push(simple);
+      }
+
+      setSourceSpans(spans, clientId);
+    },
+
+    updateSpan: (span: Domain.Span, clientId?: number) => {
+      const simple = simplifySpan(span);
+      const spans = [...getSourceSpans(clientId)];
+      const idx = spans.findIndex((s) => s.spanId === simple.spanId);
+
+      if (idx >= 0) {
+        spans[idx] = simple;
+      } else {
+        spans.push(simple);
+      }
+
+      setSourceSpans(spans, clientId);
+    },
+
+    addSpanEvent: (event: Domain.SpanEvent, clientId?: number) => {
+      const spanId = event.spanId;
+      const simpleEvent = simplifySpanEvent(event);
+      const spans = [...getSourceSpans(clientId)];
+
+      const idx = spans.findIndex((s) => s.spanId === spanId);
+
+      if (idx >= 0) {
+        spans[idx] = {
+          ...spans[idx],
+          events: [...spans[idx].events, simpleEvent],
+        };
+        setSourceSpans(spans, clientId);
+      } else {
+        const key = `${sourceKey(clientId)}:${spanId}`;
+        const buffered = eventBuffer.get(key) || [];
         buffered.push(simpleEvent);
-        eventBuffer.set(spanId, buffered);
+        eventBuffer.set(key, buffered);
       }
     },
 
     clearSpans: () => {
-      spanBuffer = [];
-      spanUpdateBuffer.clear();
+      const sourcePrefix =
+        store.activeClient._tag === "Some"
+          ? `${sourceKey(store.activeClient.value.id)}:`
+          : `${sourceKey(undefined)}:`;
+      for (const key of eventBuffer.keys()) {
+        if (key.startsWith(sourcePrefix)) {
+          eventBuffer.delete(key);
+        }
+      }
+
+      if (store.activeClient._tag === "Some") {
+        setStore("spansByClient", store.activeClient.value.id, []);
+      } else {
+        setStore("serverSpans", []);
+      }
+
       batch(() => {
         setStore("spans", []);
         setStore("ui", "selectedSpanId", null);
@@ -444,14 +473,18 @@ export function StoreProvider(props: ParentProps) {
       );
     },
 
-    updateMetrics: (snapshot: Domain.MetricsSnapshot) => {
+    updateMetrics: (snapshot: Domain.MetricsSnapshot, clientId?: number) => {
       const metrics = (snapshot.metrics as Domain.Metric[]).map(simplifyMetric);
-      batch(() => {
-        setStore("metrics", metrics);
-      });
+      setSourceMetrics(metrics, clientId);
     },
 
     clearMetrics: () => {
+      if (store.activeClient._tag === "Some") {
+        setStore("metricsByClient", store.activeClient.value.id, []);
+      } else {
+        setStore("serverMetrics", []);
+      }
+
       batch(() => {
         setStore("metrics", []);
         setStore("ui", "selectedMetricName", null);
@@ -464,13 +497,45 @@ export function StoreProvider(props: ParentProps) {
 
     setClientsFromHashSet: (newClients: HashSet.HashSet<Client>) => {
       batch(() => {
-        setStore("clients", Array.from(newClients));
+        const nextClients = Array.from(newClients);
+        setStore("clients", nextClients);
+
+        const nextIds = new Set(nextClients.map((client) => client.id));
+
+        setStore(
+          "spansByClient",
+          produce((draft) => {
+            for (const clientIdStr of Object.keys(draft)) {
+              if (!nextIds.has(Number(clientIdStr))) {
+                delete draft[Number(clientIdStr)];
+              }
+            }
+          }),
+        );
+
+        setStore(
+          "metricsByClient",
+          produce((draft) => {
+            for (const clientIdStr of Object.keys(draft)) {
+              if (!nextIds.has(Number(clientIdStr))) {
+                delete draft[Number(clientIdStr)];
+              }
+            }
+          }),
+        );
       });
     },
 
     setActiveClient: (client: Option.Option<Client>) => {
       batch(() => {
         setStore("activeClient", client);
+        if (client._tag === "Some") {
+          setStore("spans", store.spansByClient[client.value.id] ?? []);
+          setStore("metrics", store.metricsByClient[client.value.id] ?? []);
+        } else {
+          setStore("spans", store.serverSpans);
+          setStore("metrics", store.serverMetrics);
+        }
       });
     },
 
@@ -485,6 +550,8 @@ export function StoreProvider(props: ParentProps) {
       if (client) {
         setStore("ui", "selectedClientIndex", index);
         setStore("activeClient", Option.some(client));
+        setStore("spans", store.spansByClient[client.id] ?? []);
+        setStore("metrics", store.metricsByClient[client.id] ?? []);
         console.log(
           `[Store] selectClientByIndex: Selected client ${index}: ${client.name}`,
         );
