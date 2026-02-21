@@ -23,7 +23,7 @@ import { DevTools } from "@effect/experimental";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as readline from "node:readline";
 
-// Helper to create randomized delays with occasional "hangs"
+// Helper to create randomized delays with occasional "hangs" and failures
 const randomDelay = (baseMs: number, varianceMs: number) =>
   Effect.gen(function* () {
     const offset = yield* Random.nextIntBetween(-varianceMs, varianceMs + 1);
@@ -37,6 +37,12 @@ const randomDelay = (baseMs: number, varianceMs: number) =>
     }
 
     yield* Effect.sleep(Duration.millis(delayMs));
+
+    // 5% chance to fail
+    const failChance = yield* Random.nextIntBetween(0, 100);
+    if (failChance < 5) {
+      yield* Effect.fail(new Error("Random failure occurred"));
+    }
   });
 
 // Connect to the DevTools TUI server
@@ -222,13 +228,32 @@ const program = Effect.gen(function* () {
       break;
     } else if (input === "1") {
       console.log("Running userWorkflow...");
-      yield* Effect.fork(userWorkflow(1));
+      yield* Effect.fork(
+        userWorkflow(1).pipe(
+          Effect.tapError((error) =>
+            Effect.log(`userWorkflow failed: ${error}`),
+          ),
+          Effect.ignore,
+        ),
+      );
     } else if (input === "2") {
       console.log("Running databaseQuery...");
-      yield* Effect.fork(databaseQuery("SELECT * FROM users"));
+      yield* Effect.fork(
+        databaseQuery("SELECT * FROM users").pipe(
+          Effect.tapError((error) =>
+            Effect.log(`databaseQuery failed: ${error}`),
+          ),
+          Effect.ignore,
+        ),
+      );
     } else if (input === "3") {
       console.log("Running apiRequest...");
-      yield* Effect.fork(apiRequest("/api/v1/data"));
+      yield* Effect.fork(
+        apiRequest("/api/v1/data").pipe(
+          Effect.tapError((error) => Effect.log(`apiRequest failed: ${error}`)),
+          Effect.ignore,
+        ),
+      );
     } else if (input === "t") {
       const running = yield* Ref.get(timerRunning);
       if (running) {
@@ -245,7 +270,12 @@ const program = Effect.gen(function* () {
           Effect.repeat(
             Effect.gen(function* () {
               console.log("[Timer] Running userWorkflow...");
-              yield* userWorkflow(1);
+              yield* userWorkflow(1).pipe(
+                Effect.tapError((error) =>
+                  Effect.log(`[Timer] userWorkflow failed: ${error}`),
+                ),
+                Effect.ignore,
+              );
             }),
             Schedule.spaced("3 seconds"),
           ),
