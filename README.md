@@ -36,6 +36,7 @@ npmx effect-devtui
 - ⌨️ **Keyboard Navigation** - Vim-style navigation (j/k) with intuitive shortcuts
 - 🎨 **Split Panel Layout** - Side-by-side view of data and detailed information
 - 🚀 **Lightweight** - Runs in any terminal, no GUI required
+- 🤖 **MCP Server for Agents** - Exposes read-only observability tools for LLM agents over HTTP
 
 ## Setup
 
@@ -92,6 +93,48 @@ const DevToolsLive = DevTools.layer("ws://host.docker.internal:34437");
 ### OpenTelemetry Integration
 
 If you're using `@effect/opentelemetry`, provide the `DevTools` layer **before** your tracing layers to ensure the tracer is patched correctly.
+
+### MCP Server (Agent Access)
+
+`effect-devtui` also starts an MCP server automatically when the TUI starts.
+
+- **Transport**: HTTP
+- **Default endpoint**: `http://localhost:34438/mcp`
+- **Server name**: `effect-devtools`
+- **Access model**: read-only tools over in-memory DevTools state
+
+Available tools:
+
+- `list_spans`
+- `get_span`
+- `get_active_spans`
+- `list_clients`
+- `get_metrics`
+- `get_span_tree`
+
+This lets coding agents query live observability data (spans/metrics/clients) while you run your Effect app and the DevTools TUI.
+
+#### Client setup examples
+
+Claude Code (recommended via CLI, no JSON editing):
+
+```bash
+claude mcp add --transport http effect-devtui http://localhost:34438/mcp
+```
+
+OpenCode (`~/.config/opencode/opencode.json`):
+
+```json
+{
+  "mcp": {
+    "effect-devtools": {
+      "type": "remote",
+      "url": "http://127.0.0.1:34438/mcp",
+      "enabled": true
+    }
+  }
+}
+```
 
 ## Comparison with VS Code Extension
 

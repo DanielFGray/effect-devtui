@@ -6,7 +6,7 @@
  */
 
 import * as McpServer from "@effect/ai/McpServer";
-import { HttpRouter, HttpServer, HttpMiddleware } from "@effect/platform";
+import { HttpRouter, HttpServer } from "@effect/platform";
 import { BunHttpServer } from "@effect/platform-bun";
 import * as Layer from "effect/Layer";
 import * as Effect from "effect/Effect";
@@ -56,9 +56,7 @@ export const makeMcpLayer = (getStore: () => StoreState) => {
   const HttpServerLive = BunHttpServer.layer({ port: MCP_PORT });
 
   // Combine everything: serve the router with MCP routes
-  return HttpRouter.Default.unwrap(
-    HttpServer.serve(HttpMiddleware.logger),
-  ).pipe(
+  return HttpRouter.Default.unwrap(HttpServer.serve()).pipe(
     HttpServer.withLogAddress,
     Layer.provide(McpLive),
     Layer.provide(HttpServerLive),
