@@ -25,6 +25,12 @@ export interface SpanStoreState {
   readonly spanById: HashMap.HashMap<string, SimpleSpan>
   readonly spansByTrace: HashMap.HashMap<string, ReadonlyArray<SimpleSpan>>
   readonly rootByTrace: HashMap.HashMap<string, SimpleSpan>
+  /**
+   * Tracks whether a trace contains an error span. Sticky within a rotation
+   * window: once set to true, the flag stays true even if the original error
+   * span is updated, so errors remain visible for observability. The entry is
+   * only removed when the trace's last span rotates out of the store.
+   */
   readonly hasErrorByTrace: HashMap.HashMap<string, boolean>
   readonly metricsBySource: HashMap.HashMap<SourceKey, ReadonlyArray<SimpleMetric>>
   readonly eventBuffer: HashMap.HashMap<string, ReadonlyArray<SimpleSpanEvent>>

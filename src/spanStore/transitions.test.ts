@@ -412,4 +412,48 @@ describe("index consistency after rotation", () => {
     )
     expect(droppedGone).toBe(true)
   })
+
+  test("hasErrorByTrace is cleaned when a trace's last span rotates out", () => {
+    // Add a single error span on its own unique trace, then fill up to
+    // MAX_SPANS with spans on a different trace so the error trace rotates out.
+    const errorSpan = makeSpan({
+      spanId: "err-1",
+      traceId: "trace-err",
+      name: "failing-op",
+      status: "ended",
+      endTime: 5_000_000n,
+      attributes: { error: "boom" },
+    })
+    const [withError] = addSpan(errorSpan, source)(empty)
+
+    // Sanity: hasErrorByTrace should be set
+    expect(
+      pipe(HashMap.get(withError.hasErrorByTrace, "trace-err"), Option.getOrElse(() => false)),
+    ).toBe(true)
+
+    // Add MAX_SPANS more spans on a different trace, triggering rotation
+    // that drops the single error span.
+    const state = Array.reduce(
+      Array.range(1, MAX_SPANS),
+      withError,
+      (acc, i) => {
+        const span = makeSpan({
+          spanId: `fill-${i}`,
+          traceId: "trace-fill",
+          name: "filler",
+        })
+        const [newState] = addSpan(span, source)(acc)
+        return newState
+      },
+    )
+
+    // The error span should have been rotated out
+    expect(Option.isNone(HashMap.get(state.spanById, "err-1"))).toBe(true)
+
+    // hasErrorByTrace entry for trace-err should also be gone
+    expect(Option.isNone(HashMap.get(state.hasErrorByTrace, "trace-err"))).toBe(true)
+
+    // spansByTrace should not have trace-err either
+    expect(Option.isNone(HashMap.get(state.spansByTrace, "trace-err"))).toBe(true)
+  })
 })

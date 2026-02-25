@@ -36,6 +36,10 @@ const getOrEmpty = <K, V>(map: HashMap.HashMap<K, ReadonlyArray<V>>, key: K): Re
 const bufferKey = (source: SourceKey, spanId: string): string =>
   `${String(source)}:${spanId}`
 
+/** Detect whether a span ended with an error */
+const isErrorSpan = (span: SimpleSpan): boolean =>
+  span.status === "ended" && span.attributes["error"] !== undefined
+
 // =============================================================================
 // addSpan
 // =============================================================================
@@ -97,15 +101,26 @@ export const addSpan = (span: SimpleSpan, source: SourceKey) =>
       hasErrorByTrace: acc.hasErrorByTrace,
     }))
 
-    // Remove empty trace entries
+    // Remove empty trace entries and clean hasErrorByTrace for fully-rotated traces
+    const emptyTraceIds = pipe(
+      HashMap.toEntries(cleanedIndices.spansByTrace),
+      Array.filter(([, spans]) => Array.isEmptyReadonlyArray(spans)),
+      Array.map(([traceId]) => traceId),
+    )
     const cleanedSpansByTrace = HashMap.filter(cleanedIndices.spansByTrace, (spans) =>
       !Array.isEmptyReadonlyArray(spans),
+    )
+    const cleanedHasErrorByTrace = Array.reduce(
+      emptyTraceIds,
+      cleanedIndices.hasErrorByTrace,
+      (acc, traceId) => HashMap.remove(acc, traceId),
     )
 
     // Now update indices with the current span
     const baseIndices = {
       ...cleanedIndices,
       spansByTrace: cleanedSpansByTrace,
+      hasErrorByTrace: cleanedHasErrorByTrace,
     }
 
     // Update spanById with new span
@@ -126,7 +141,7 @@ export const addSpan = (span: SimpleSpan, source: SourceKey) =>
       : baseIndices.rootByTrace
 
     // Update hasErrorByTrace
-    const hasError = spanWithEvents.status === "ended" && spanWithEvents.attributes["error"] !== undefined
+    const hasError = isErrorSpan(spanWithEvents)
     const existingHasError = pipe(
       HashMap.get(baseIndices.hasErrorByTrace, spanWithEvents.traceId),
       Option.getOrElse(() => false),
@@ -286,7 +301,7 @@ export const computeSpanStats = (state: SpanStoreState): ReadonlyArray<SpanNameS
       const durationMs = span.endTime !== null
         ? Number(span.endTime - span.startTime) / 1_000_000
         : 0
-      const isError = span.status === "ended" && span.attributes["error"] !== undefined
+      const isError = isErrorSpan(span)
 
       return pipe(
         HashMap.get(acc, span.name),
