@@ -70,6 +70,8 @@ const makeClient = (serverClient: Server.Client, name?: string) =>
 
     console.log("[Server] New DevTools client connected!");
 
+    // Unbounded: SpanStore's MAX_SPANS rotation handles downstream bounds.
+    // We accept all spans from clients to avoid data loss during bursts.
     const spans = yield* Effect.acquireRelease(
       PubSub.unbounded<Domain.Span | Domain.SpanEvent>(),
       PubSub.shutdown,

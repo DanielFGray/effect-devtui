@@ -271,6 +271,117 @@ export const updateMetrics = (metrics: ReadonlyArray<SimpleMetric>, source: Sour
   }
 
 // =============================================================================
+// clearSource
+// =============================================================================
+
+/**
+ * Remove all spans and metrics for a given source.
+ * Cleans up all indices (spanById, spansByTrace, rootByTrace, hasErrorByTrace,
+ * eventBuffer) and emits SpansRotated + MetricsUpdated events so the bridge
+ * knows to sync.
+ *
+ * Returns curried: clearSource(source)(state) -> [state, events]
+ */
+export const clearSource = (source: SourceKey) =>
+  (state: SpanStoreState): readonly [SpanStoreState, ReadonlyArray<StoreEvent>] => {
+    const sourceSpans = getOrEmpty(state.spansBySource, source)
+
+    if (Array.isEmptyReadonlyArray(sourceSpans)) {
+      // Nothing to clear for spans; still clear metrics if present
+      const hasMetrics = Option.isSome(HashMap.get(state.metricsBySource, source))
+      if (!hasMetrics) {
+        return [state, []] as const
+      }
+      const newState: SpanStoreState = {
+        ...state,
+        metricsBySource: HashMap.remove(state.metricsBySource, source),
+      }
+      return [newState, [SE.MetricsUpdated({ source })]] as const
+    }
+
+    // Collect the set of spanIds being removed
+    const spanIdSet = new Set(Array.map(sourceSpans, (s) => s.spanId))
+
+    // Collect affected traceIds
+    const affectedTraceIds = pipe(
+      sourceSpans,
+      Array.map((s) => s.traceId),
+      Array.dedupe,
+    )
+
+    // Remove all cleared spans from spanById
+    const newSpanById = Array.reduce(
+      sourceSpans,
+      state.spanById,
+      (acc, span) => HashMap.remove(acc, span.spanId),
+    )
+
+    // For each affected trace, filter out cleared spans. If trace becomes
+    // empty, remove it from spansByTrace, rootByTrace, and hasErrorByTrace.
+    const traceCleanup = Array.reduce(
+      affectedTraceIds,
+      {
+        spansByTrace: state.spansByTrace,
+        rootByTrace: state.rootByTrace,
+        hasErrorByTrace: state.hasErrorByTrace,
+      },
+      (acc, traceId) => {
+        const traceSpans = getOrEmpty(acc.spansByTrace, traceId)
+        const remaining = Array.filter(traceSpans, (s) => !spanIdSet.has(s.spanId))
+
+        if (Array.isEmptyReadonlyArray(remaining)) {
+          return {
+            spansByTrace: HashMap.remove(acc.spansByTrace, traceId),
+            rootByTrace: HashMap.remove(acc.rootByTrace, traceId),
+            hasErrorByTrace: HashMap.remove(acc.hasErrorByTrace, traceId),
+          }
+        }
+
+        // Trace still has spans from other sources. Update spansByTrace,
+        // and re-check rootByTrace (remove if the root was in the cleared set).
+        const rootChanged = pipe(
+          HashMap.get(acc.rootByTrace, traceId),
+          Option.filter((root) => spanIdSet.has(root.spanId)),
+          Option.isSome,
+        )
+
+        return {
+          spansByTrace: HashMap.set(acc.spansByTrace, traceId, remaining),
+          rootByTrace: rootChanged
+            ? HashMap.remove(acc.rootByTrace, traceId)
+            : acc.rootByTrace,
+          hasErrorByTrace: acc.hasErrorByTrace,
+        }
+      },
+    )
+
+    // Remove buffered events that belong to this source
+    const sourcePrefix = `${String(source)}:`
+    const newEventBuffer = HashMap.filter(state.eventBuffer, (_, key) =>
+      !key.startsWith(sourcePrefix),
+    )
+
+    const newState: SpanStoreState = {
+      ...state,
+      spansBySource: HashMap.remove(state.spansBySource, source),
+      metricsBySource: HashMap.remove(state.metricsBySource, source),
+      spanById: newSpanById,
+      spansByTrace: traceCleanup.spansByTrace,
+      rootByTrace: traceCleanup.rootByTrace,
+      hasErrorByTrace: traceCleanup.hasErrorByTrace,
+      eventBuffer: newEventBuffer,
+    }
+
+    return [
+      newState,
+      [
+        SE.SpansRotated({ droppedCount: sourceSpans.length, source }),
+        SE.MetricsUpdated({ source }),
+      ],
+    ] as const
+  }
+
+// =============================================================================
 // computeSpanStats
 // =============================================================================
 

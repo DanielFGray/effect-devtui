@@ -22,6 +22,7 @@ import {
   startRuntime,
   triggerLayerAnalysis,
   cancelLayerAnalysis,
+  clearSpanStoreSource,
 } from "./runtime";
 
 // Re-export types from storeTypes
@@ -194,6 +195,14 @@ export function StoreProvider(props: ParentProps) {
 
   const actions: StoreActions = {
     clearSpans: () => {
+      // Determine the active source and clear it from SpanStore so the
+      // backing data doesn't reappear on the next bridge sync event.
+      const source = Option.match(store.activeClient, {
+        onNone: () => "server" as const,
+        onSome: (client) => client.id,
+      });
+      clearSpanStoreSource(source);
+
       batch(() => {
         setStore("spans", []);
         setStore("ui", "selectedSpanId", null);
@@ -246,6 +255,14 @@ export function StoreProvider(props: ParentProps) {
     },
 
     clearMetrics: () => {
+      // Determine the active source and clear its metrics from SpanStore so
+      // they don't reappear on the next bridge sync event.
+      const source = Option.match(store.activeClient, {
+        onNone: () => "server" as const,
+        onSome: (client) => client.id,
+      });
+      clearSpanStoreSource(source);
+
       batch(() => {
         setStore("metrics", []);
         setStore("ui", "selectedMetricName", null);

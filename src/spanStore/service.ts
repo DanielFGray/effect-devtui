@@ -29,6 +29,7 @@ import {
   addSpan as addSpanTransition,
   addSpanEvent as addSpanEventTransition,
   updateMetrics as updateMetricsTransition,
+  clearSource as clearSourceTransition,
   computeSpanStats,
 } from "./transitions"
 
@@ -40,6 +41,7 @@ export class SpanStore extends Context.Tag("effect-devtui/SpanStore")<SpanStore,
   readonly addSpan: (span: SimpleSpan, source: SourceKey) => Effect.Effect<void>
   readonly addSpanEvent: (event: SimpleSpanEvent, spanId: string, source: SourceKey) => Effect.Effect<void>
   readonly updateMetrics: (metrics: ReadonlyArray<SimpleMetric>, source: SourceKey) => Effect.Effect<void>
+  readonly clearSource: (source: SourceKey) => Effect.Effect<void>
   readonly getByTrace: (traceId: string) => Effect.Effect<ReadonlyArray<SimpleSpan>>
   readonly getByTime: (start: bigint, end: bigint, source?: SourceKey) => Effect.Effect<ReadonlyArray<SimpleSpan>>
   readonly getAllSpans: (source?: SourceKey) => Effect.Effect<ReadonlyArray<SimpleSpan>>
@@ -110,6 +112,15 @@ export const SpanStoreLive: Layer.Layer<SpanStore> = Layer.effect(
         yield* publishAll(pubsub, events)
       })
 
+    const clearSource = (source: SourceKey): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const events = yield* Ref.modify(ref, (state) => {
+          const [newState, storeEvents] = clearSourceTransition(source)(state)
+          return [storeEvents, newState]
+        })
+        yield* publishAll(pubsub, events)
+      })
+
     const getByTrace = (traceId: string): Effect.Effect<ReadonlyArray<SimpleSpan>> =>
       pipe(
         Ref.get(ref),
@@ -163,6 +174,7 @@ export const SpanStoreLive: Layer.Layer<SpanStore> = Layer.effect(
       addSpan,
       addSpanEvent,
       updateMetrics,
+      clearSource,
       getByTrace,
       getByTime,
       getAllSpans,

@@ -32,6 +32,7 @@ import type * as Domain from "@effect/experimental/DevTools/Domain";
 import { runLayerAnalysis, applyLayerSuggestion } from "./layerAnalysis";
 import { runMcpServer, MCP_PORT } from "./mcp/server";
 import { SpanStore, SpanStoreLive } from "./spanStore/service";
+import type { SourceKey } from "./spanStore/types";
 import { createSolidBridge } from "./spanStore/solidBridge";
 import {
   simplifySpan,
@@ -52,6 +53,9 @@ type AnalysisCommand =
 
 /** Global command queue - the only module-level state we need */
 const analysisCommandQueueRef: { current: Queue.Queue<AnalysisCommand> | null } = { current: null };
+
+/** Module-level ref to the SpanStore instance for imperative calls from the Solid store */
+const spanStoreRef: { current: { readonly clearSource: (source: SourceKey) => Effect.Effect<void> } | null } = { current: null };
 
 /** Global store actions layer for apply fix (needed for triggerLayerFix) */
 const globalStoreActionsLayerRef: { current: Layer.Layer<StoreActionsService> | null } = { current: null };
@@ -228,6 +232,10 @@ const makeProgram = (bridgeArgs?: BridgeArgs) =>
   Effect.gen(function* () {
     const actions = yield* StoreActionsService;
     const { clients, activeClient: activeClientRef } = yield* ServerContext;
+
+    // Expose the SpanStore instance for imperative calls (e.g. clearSource)
+    const spanStore = yield* SpanStore;
+    spanStoreRef.current = spanStore;
 
     // Subscribe to client changes and update the store
     yield* pipe(
@@ -432,6 +440,20 @@ export function cancelLayerAnalysis(): void {
     );
   } else {
     console.warn("[Runtime] Analysis command queue not initialized yet");
+  }
+}
+
+/**
+ * Clear all spans and metrics for a source from the SpanStore.
+ * Called from the Solid store's clearSpans/clearMetrics actions to ensure
+ * the backing SpanStore data is also removed, preventing it from
+ * reappearing on the next bridge sync.
+ */
+export function clearSpanStoreSource(source: SourceKey): void {
+  if (spanStoreRef.current) {
+    Effect.runFork(spanStoreRef.current.clearSource(source));
+  } else {
+    console.warn("[Runtime] SpanStore not initialized yet, cannot clearSource");
   }
 }
 

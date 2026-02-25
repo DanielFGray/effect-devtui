@@ -5,7 +5,7 @@ import * as Array from "effect/Array"
 import { pipe } from "effect/Function"
 import type { SimpleSpan, SimpleSpanEvent, SimpleMetric } from "../storeTypes"
 import { empty, MAX_SPANS, type SourceKey, type SpanStoreState } from "./types"
-import { addSpan, addSpanEvent, updateMetrics, computeSpanStats } from "./transitions"
+import { addSpan, addSpanEvent, updateMetrics, clearSource, computeSpanStats } from "./transitions"
 
 // =============================================================================
 // Test Helpers
@@ -455,5 +455,162 @@ describe("index consistency after rotation", () => {
 
     // spansByTrace should not have trace-err either
     expect(Option.isNone(HashMap.get(state.spansByTrace, "trace-err"))).toBe(true)
+  })
+})
+
+// =============================================================================
+// clearSource
+// =============================================================================
+
+describe("clearSource", () => {
+  test("returns no-op for empty source", () => {
+    const [state, events] = clearSource(source)(empty)
+    expect(state).toBe(empty)
+    expect(events).toHaveLength(0)
+  })
+
+  test("clears all spans and metrics for a source", () => {
+    // Add spans and metrics
+    const span1 = makeSpan({ spanId: "s1", traceId: "t1" })
+    const span2 = makeSpan({ spanId: "s2", traceId: "t1", parent: "s1" })
+    const span3 = makeSpan({ spanId: "s3", traceId: "t2" })
+    const metrics: ReadonlyArray<SimpleMetric> = [makeMetric({ name: "m1" })]
+
+    const [state1] = addSpan(span1, source)(empty)
+    const [state2] = addSpan(span2, source)(state1)
+    const [state3] = addSpan(span3, source)(state2)
+    const [state4] = updateMetrics(metrics, source)(state3)
+
+    // Verify setup
+    const beforeSpans = pipe(HashMap.get(state4.spansBySource, source), Option.getOrElse((): ReadonlyArray<SimpleSpan> => []))
+    expect(beforeSpans).toHaveLength(3)
+    const beforeMetrics = pipe(HashMap.get(state4.metricsBySource, source), Option.getOrElse((): ReadonlyArray<SimpleMetric> => []))
+    expect(beforeMetrics).toHaveLength(1)
+
+    // Clear source
+    const [state5, events] = clearSource(source)(state4)
+
+    // spansBySource should not have the source key
+    expect(Option.isNone(HashMap.get(state5.spansBySource, source))).toBe(true)
+
+    // metricsBySource should not have the source key
+    expect(Option.isNone(HashMap.get(state5.metricsBySource, source))).toBe(true)
+
+    // spanById should be empty for cleared spans
+    expect(Option.isNone(HashMap.get(state5.spanById, "s1"))).toBe(true)
+    expect(Option.isNone(HashMap.get(state5.spanById, "s2"))).toBe(true)
+    expect(Option.isNone(HashMap.get(state5.spanById, "s3"))).toBe(true)
+
+    // spansByTrace should be empty for affected traces
+    expect(Option.isNone(HashMap.get(state5.spansByTrace, "t1"))).toBe(true)
+    expect(Option.isNone(HashMap.get(state5.spansByTrace, "t2"))).toBe(true)
+
+    // rootByTrace should be empty
+    expect(Option.isNone(HashMap.get(state5.rootByTrace, "t1"))).toBe(true)
+
+    // hasErrorByTrace should be empty
+    expect(Option.isNone(HashMap.get(state5.hasErrorByTrace, "t1"))).toBe(true)
+
+    // Events: SpansRotated + MetricsUpdated
+    expect(events).toHaveLength(2)
+    expect(events[0]!._tag).toBe("SpansRotated")
+    expect(events[1]!._tag).toBe("MetricsUpdated")
+  })
+
+  test("does not affect other sources", () => {
+    const source1: SourceKey = 1
+    const source2: SourceKey = 2
+
+    const span1 = makeSpan({ spanId: "s1", traceId: "t1" })
+    const span2 = makeSpan({ spanId: "s2", traceId: "t2" })
+
+    const [state1] = addSpan(span1, source1)(empty)
+    const [state2] = addSpan(span2, source2)(state1)
+    const [state3] = updateMetrics([makeMetric({ name: "m1" })], source1)(state2)
+    const [state4] = updateMetrics([makeMetric({ name: "m2" })], source2)(state3)
+
+    // Clear source1 only
+    const [state5] = clearSource(source1)(state4)
+
+    // Source1 should be gone
+    expect(Option.isNone(HashMap.get(state5.spansBySource, source1))).toBe(true)
+    expect(Option.isNone(HashMap.get(state5.metricsBySource, source1))).toBe(true)
+    expect(Option.isNone(HashMap.get(state5.spanById, "s1"))).toBe(true)
+
+    // Source2 should be intact
+    const s2Spans = pipe(HashMap.get(state5.spansBySource, source2), Option.getOrElse((): ReadonlyArray<SimpleSpan> => []))
+    expect(s2Spans).toHaveLength(1)
+    expect(s2Spans[0]!.spanId).toBe("s2")
+    expect(Option.isSome(HashMap.get(state5.spanById, "s2"))).toBe(true)
+    const s2Metrics = pipe(HashMap.get(state5.metricsBySource, source2), Option.getOrElse((): ReadonlyArray<SimpleMetric> => []))
+    expect(s2Metrics).toHaveLength(1)
+    expect(s2Metrics[0]!.name).toBe("m2")
+  })
+
+  test("clears buffered events for the source", () => {
+    // Buffer events for spans on this source
+    const event1 = makeEvent({ name: "buffered-1" })
+    const event2 = makeEvent({ name: "buffered-2" })
+
+    const [state1] = addSpanEvent(event1, "pending-span", source)(empty)
+    const [state2] = addSpanEvent(event2, "pending-span", source)(state1)
+
+    // Also add a span so spansBySource is non-empty
+    const span = makeSpan({ spanId: "existing" })
+    const [state3] = addSpan(span, source)(state2)
+
+    // Verify buffer exists
+    const bKey = `${source}:pending-span`
+    expect(Option.isSome(HashMap.get(state3.eventBuffer, bKey))).toBe(true)
+
+    // Clear source
+    const [state4] = clearSource(source)(state3)
+
+    // Buffer should be cleared
+    expect(Option.isNone(HashMap.get(state4.eventBuffer, bKey))).toBe(true)
+  })
+
+  test("handles trace shared across sources correctly", () => {
+    const source1: SourceKey = 1
+    const source2: SourceKey = 2
+
+    // Both sources contribute spans to the same trace
+    const span1 = makeSpan({ spanId: "s1", traceId: "shared-trace" })
+    const span2 = makeSpan({ spanId: "s2", traceId: "shared-trace", parent: "s1" })
+
+    const [state1] = addSpan(span1, source1)(empty)
+    const [state2] = addSpan(span2, source2)(state1)
+
+    // Both spans should be in spansByTrace for shared-trace
+    const beforeTrace = pipe(HashMap.get(state2.spansByTrace, "shared-trace"), Option.getOrElse((): ReadonlyArray<SimpleSpan> => []))
+    expect(beforeTrace).toHaveLength(2)
+
+    // Clear source1 (which has the root span)
+    const [state3] = clearSource(source1)(state2)
+
+    // Source2's span should remain in spansByTrace
+    const afterTrace = pipe(HashMap.get(state3.spansByTrace, "shared-trace"), Option.getOrElse((): ReadonlyArray<SimpleSpan> => []))
+    expect(afterTrace).toHaveLength(1)
+    expect(afterTrace[0]!.spanId).toBe("s2")
+
+    // rootByTrace should be cleared since the root (s1) was from source1
+    expect(Option.isNone(HashMap.get(state3.rootByTrace, "shared-trace"))).toBe(true)
+
+    // s1 should be gone from spanById, s2 should remain
+    expect(Option.isNone(HashMap.get(state3.spanById, "s1"))).toBe(true)
+    expect(Option.isSome(HashMap.get(state3.spanById, "s2"))).toBe(true)
+  })
+
+  test("clears metrics-only source (no spans)", () => {
+    const [state1] = updateMetrics([makeMetric({ name: "m1" })], source)(empty)
+
+    // No spans for this source, just metrics
+    const [state2, events] = clearSource(source)(state1)
+
+    expect(Option.isNone(HashMap.get(state2.metricsBySource, source))).toBe(true)
+
+    // Should emit MetricsUpdated only (no SpansRotated since there were no spans)
+    expect(events).toHaveLength(1)
+    expect(events[0]!._tag).toBe("MetricsUpdated")
   })
 })
