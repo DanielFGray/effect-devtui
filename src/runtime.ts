@@ -228,7 +228,7 @@ interface BridgeArgs {
  *
  * Uses SpanStore for data flow and StoreActionsService for client/server status.
  */
-const makeProgram = (bridgeArgs?: BridgeArgs) =>
+const makeProgram = (bridgeArgs?: BridgeArgs, getStore?: () => StoreState) =>
   Effect.gen(function* () {
     const actions = yield* StoreActionsService;
     const { clients, activeClient: activeClientRef } = yield* ServerContext;
@@ -338,6 +338,20 @@ const makeProgram = (bridgeArgs?: BridgeArgs) =>
       console.log("[Runtime] Solid bridge started");
     }
 
+    // Start MCP server (shares SpanStore from the same layer context)
+    if (getStore) {
+      console.log(`[Runtime] Starting MCP server on port ${MCP_PORT}`);
+      yield* Effect.fork(
+        runMcpServer(getStore).pipe(
+          Effect.catchAllCause((cause) =>
+            Effect.sync(() =>
+              console.error("[Runtime] MCP server error:", cause),
+            ),
+          ),
+        ),
+      );
+    }
+
     // Run forever
     yield* Effect.never;
   });
@@ -390,24 +404,13 @@ export function startRuntime(
         }
       : undefined;
 
-  const runnable = makeProgram(bridgeArgs).pipe(Effect.provide(MainLive));
+  const runnable = makeProgram(bridgeArgs, getStore).pipe(
+    Effect.provide(MainLive),
+  );
 
   // Run the Effect program (fire and forget)
+  // MCP server is forked inside makeProgram so it shares the same SpanStoreLive
   Effect.runFork(runnable);
-
-  // Start MCP server on separate port if store getter is provided
-  if (getStore) {
-    console.log(`[Runtime] Starting MCP server on port ${MCP_PORT}`);
-    Effect.runFork(
-      runMcpServer(getStore).pipe(
-        Effect.catchAllCause((cause) =>
-          Effect.sync(() =>
-            console.error("[Runtime] MCP server error:", cause),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /**

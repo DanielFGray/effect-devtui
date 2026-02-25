@@ -3,6 +3,8 @@
  *
  * This module creates the MCP server layer using @effect/ai's McpServer.
  * It registers the DevTools toolkit and provides the StoreReader dependency.
+ * The SpanStore dependency must be provided by the caller (from the main
+ * program's layer context) so the MCP tools share the same span data.
  */
 
 import * as McpServer from "@effect/ai/McpServer";
@@ -27,15 +29,21 @@ export const MCP_PATH = "/mcp";
  * 1. Creates an HTTP server on a separate port
  * 2. Creates an MCP server at the specified path
  * 3. Registers the DevTools toolkit with all tools
- * 4. Provides the StoreReader service for tool handlers
+ * 4. Provides the StoreReader service for client-list queries
  *
- * @param getStore - Function to get the current store state
+ * NOTE: SpanStore is NOT provided here. DevToolsToolkitHandlers requires
+ * SpanStore, so it bubbles up as a requirement on the returned layer.
+ * The caller of runMcpServer must ensure SpanStore is in the environment.
+ *
+ * @param getStore - Function to get the current store state (for StoreReader)
  */
 export const makeMcpLayer = (getStore: () => StoreState) => {
   // Create MCP toolkit layer that registers tools with the server
   const ToolkitLayer = McpServer.toolkit(DevToolsToolkit);
 
   // MCP layer with toolkit registration
+  // DevToolsToolkitHandlers depends on SpanStore | StoreReader.
+  // We provide StoreReader here; SpanStore must come from outside.
   const McpLive = Layer.mergeAll(
     // The MCP HTTP layer creates the server and registers routes on HttpRouter.Default
     McpServer.layerHttp({
@@ -48,7 +56,7 @@ export const makeMcpLayer = (getStore: () => StoreState) => {
   ).pipe(
     // Provide the handlers for our toolkit
     Layer.provide(DevToolsToolkitHandlers),
-    // Provide the store reader so handlers can access state
+    // Provide the store reader so handlers can access client state
     Layer.provide(makeStoreReaderLayer(getStore)),
   );
 
@@ -56,6 +64,7 @@ export const makeMcpLayer = (getStore: () => StoreState) => {
   const HttpServerLive = BunHttpServer.layer({ port: MCP_PORT });
 
   // Combine everything: serve the router with MCP routes
+  // SpanStore requirement bubbles up through the layer composition
   return HttpRouter.Default.unwrap(HttpServer.serve()).pipe(
     HttpServer.withLogAddress,
     Layer.provide(McpLive),
@@ -64,7 +73,11 @@ export const makeMcpLayer = (getStore: () => StoreState) => {
 };
 
 /**
- * Run the MCP server as an Effect (for use in forked fiber)
+ * Run the MCP server as an Effect (for use in forked fiber).
+ *
+ * This Effect requires SpanStore in its environment. When called from
+ * makeProgram (which provides SpanStoreLive), the MCP tools will share
+ * the same SpanStore instance as the rest of the application.
  */
 export const runMcpServer = (getStore: () => StoreState) =>
   Effect.gen(function* () {
