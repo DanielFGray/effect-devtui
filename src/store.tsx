@@ -16,7 +16,6 @@ import {
   onMount,
   type ParentProps,
 } from "solid-js";
-import type * as Domain from "@effect/experimental/DevTools/Domain";
 import type { Client } from "./server";
 import { getCommands, filterCommands } from "./commands";
 import {
@@ -43,122 +42,10 @@ import type {
   FocusedSection,
   ActiveTab,
   SimpleSpan,
-  SimpleSpanEvent,
-  SimpleMetric,
-  LayerAnalysisResults,
   StoreState,
   StoreActions,
   StoreContext,
 } from "./storeTypes";
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-function simplifySpan(span: Domain.Span): SimpleSpan {
-  const attrs: Record<string, unknown> = {};
-  for (const [key, value] of span.attributes) {
-    if (
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
-    ) {
-      attrs[key] = value;
-    } else if (value === null || value === undefined) {
-      attrs[key] = null;
-    } else {
-      attrs[key] = String(value);
-    }
-  }
-
-  return {
-    spanId: span.spanId,
-    traceId: span.traceId,
-    name: span.name,
-    parent: Option.isSome(span.parent) ? span.parent.value.spanId : null,
-    status: span.status._tag === "Ended" ? "ended" : "running",
-    startTime: span.status.startTime,
-    endTime: span.status._tag === "Ended" ? span.status.endTime : null,
-    attributes: attrs,
-    events: [], // Events added separately via addSpanEvent
-  };
-}
-
-function simplifySpanEvent(event: Domain.SpanEvent): SimpleSpanEvent {
-  const attrs: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(event.attributes)) {
-    if (
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
-    ) {
-      attrs[key] = value;
-    } else if (value === null || value === undefined) {
-      attrs[key] = null;
-    } else {
-      attrs[key] = String(value);
-    }
-  }
-
-  return {
-    name: event.name,
-    startTime: event.startTime,
-    attributes: attrs,
-  };
-}
-
-function simplifyMetric(metric: Domain.Metric): SimpleMetric {
-  const tags: Record<string, string> = {};
-  for (const tag of metric.tags) {
-    tags[tag.key] = tag.value;
-  }
-
-  let value: number | string = "";
-  let details: Record<string, number | string> = {};
-
-  switch (metric._tag) {
-    case "Counter":
-      value = Number(metric.state.count); // Convert bigint to number
-      break;
-    case "Gauge":
-      value = Number(metric.state.value); // Convert bigint to number
-      break;
-    case "Histogram":
-      value = Number(metric.state.count);
-      details = {
-        count: Number(metric.state.count),
-        sum: Number(metric.state.sum),
-        min: Number(metric.state.min),
-        max: Number(metric.state.max),
-      };
-      break;
-    case "Frequency":
-      value = metric.state.occurrences.size + " entries";
-      const occurrences: Record<string, number> = {};
-      for (const key of Object.keys(metric.state.occurrences)) {
-        occurrences[String(key)] = Number(metric.state.occurrences[key]);
-      }
-      details = occurrences;
-      break;
-    case "Summary":
-      value = Number(metric.state.count);
-      details = {
-        count: Number(metric.state.count),
-        sum: Number(metric.state.sum),
-        min: Number(metric.state.min),
-        max: Number(metric.state.max),
-      };
-      break;
-  }
-
-  return {
-    name: metric.name,
-    type: metric._tag,
-    value,
-    tags,
-    details,
-  };
-}
 
 // =============================================================================
 // Context
@@ -236,50 +123,6 @@ export function StoreProvider(props: ParentProps) {
     setStore("debugCounter", (c) => c + 1);
   }, 1000);
 
-  let eventBuffer: Map<string, SimpleSpanEvent[]> = new Map();
-
-  const sourceKey = (clientId?: number) =>
-    `${clientId === undefined ? "server" : clientId}`;
-
-  const isVisibleSource = (clientId?: number) =>
-    store.activeClient._tag === "Some"
-      ? clientId === store.activeClient.value.id
-      : clientId === undefined;
-
-  const getSourceSpans = (clientId?: number) =>
-    clientId === undefined
-      ? store.serverSpans
-      : (store.spansByClient[clientId] ?? []);
-
-  const setSourceSpans = (nextSpans: SimpleSpan[], clientId?: number) => {
-    if (clientId === undefined) {
-      setStore("serverSpans", nextSpans);
-    } else {
-      setStore("spansByClient", clientId, nextSpans);
-    }
-
-    if (isVisibleSource(clientId)) {
-      setStore("spans", nextSpans);
-    }
-  };
-
-  const getSourceMetrics = (clientId?: number) =>
-    clientId === undefined
-      ? store.serverMetrics
-      : (store.metricsByClient[clientId] ?? []);
-
-  const setSourceMetrics = (nextMetrics: SimpleMetric[], clientId?: number) => {
-    if (clientId === undefined) {
-      setStore("serverMetrics", nextMetrics);
-    } else {
-      setStore("metricsByClient", clientId, nextMetrics);
-    }
-
-    if (isVisibleSource(clientId)) {
-      setStore("metrics", nextMetrics);
-    }
-  };
-
   // Helper types for navigation
   type NavigableItem = { type: "span"; span: SimpleSpan };
 
@@ -350,78 +193,7 @@ export function StoreProvider(props: ParentProps) {
   };
 
   const actions: StoreActions = {
-    addSpan: (span: Domain.Span, clientId?: number) => {
-      const simple = simplifySpan(span);
-      const spans = [...getSourceSpans(clientId)];
-      const idx = spans.findIndex((s) => s.spanId === simple.spanId);
-
-      const bufferedEvents = eventBuffer.get(`${sourceKey(clientId)}:${simple.spanId}`);
-      if (bufferedEvents && bufferedEvents.length > 0) {
-        simple.events = bufferedEvents;
-        eventBuffer.delete(`${sourceKey(clientId)}:${simple.spanId}`);
-      }
-
-      if (idx >= 0) {
-        spans[idx] = simple;
-      } else {
-        spans.push(simple);
-      }
-
-      setSourceSpans(spans, clientId);
-    },
-
-    updateSpan: (span: Domain.Span, clientId?: number) => {
-      const simple = simplifySpan(span);
-      const spans = [...getSourceSpans(clientId)];
-      const idx = spans.findIndex((s) => s.spanId === simple.spanId);
-
-      if (idx >= 0) {
-        spans[idx] = simple;
-      } else {
-        spans.push(simple);
-      }
-
-      setSourceSpans(spans, clientId);
-    },
-
-    addSpanEvent: (event: Domain.SpanEvent, clientId?: number) => {
-      const spanId = event.spanId;
-      const simpleEvent = simplifySpanEvent(event);
-      const spans = [...getSourceSpans(clientId)];
-
-      const idx = spans.findIndex((s) => s.spanId === spanId);
-
-      if (idx >= 0) {
-        spans[idx] = {
-          ...spans[idx],
-          events: [...spans[idx].events, simpleEvent],
-        };
-        setSourceSpans(spans, clientId);
-      } else {
-        const key = `${sourceKey(clientId)}:${spanId}`;
-        const buffered = eventBuffer.get(key) || [];
-        buffered.push(simpleEvent);
-        eventBuffer.set(key, buffered);
-      }
-    },
-
     clearSpans: () => {
-      const sourcePrefix =
-        store.activeClient._tag === "Some"
-          ? `${sourceKey(store.activeClient.value.id)}:`
-          : `${sourceKey(undefined)}:`;
-      for (const key of eventBuffer.keys()) {
-        if (key.startsWith(sourcePrefix)) {
-          eventBuffer.delete(key);
-        }
-      }
-
-      if (store.activeClient._tag === "Some") {
-        setStore("spansByClient", store.activeClient.value.id, []);
-      } else {
-        setStore("serverSpans", []);
-      }
-
       batch(() => {
         setStore("spans", []);
         setStore("ui", "selectedSpanId", null);
@@ -473,18 +245,7 @@ export function StoreProvider(props: ParentProps) {
       );
     },
 
-    updateMetrics: (snapshot: Domain.MetricsSnapshot, clientId?: number) => {
-      const metrics = (snapshot.metrics as Domain.Metric[]).map(simplifyMetric);
-      setSourceMetrics(metrics, clientId);
-    },
-
     clearMetrics: () => {
-      if (store.activeClient._tag === "Some") {
-        setStore("metricsByClient", store.activeClient.value.id, []);
-      } else {
-        setStore("serverMetrics", []);
-      }
-
       batch(() => {
         setStore("metrics", []);
         setStore("ui", "selectedMetricName", null);
@@ -1126,8 +887,8 @@ export function StoreProvider(props: ParentProps) {
   // Use onMount to ensure it only runs once when the component mounts
   onMount(() => {
     console.log("[Store] StoreProvider: Starting Effect runtime from onMount");
-    // Pass both actions and a getter function for read-only access to store
-    startRuntime(actions, () => store);
+    // Pass actions, store getter, and setStore for SpanStore bridge
+    startRuntime(actions, () => store, setStore);
   });
 
   const ctx: StoreContext = { store, actions };

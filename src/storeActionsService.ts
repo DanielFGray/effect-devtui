@@ -23,25 +23,6 @@ import type {
  * All methods return Effects so they can be composed properly.
  */
 export interface StoreActionsService {
-  // Span actions
-  readonly addSpan: (span: unknown, clientId?: number) => Effect.Effect<void>;
-  readonly updateSpan: (
-    span: unknown,
-    clientId?: number,
-  ) => Effect.Effect<void>;
-  readonly addSpanEvent: (
-    event: unknown,
-    clientId?: number,
-  ) => Effect.Effect<void>;
-  readonly clearSpans: () => Effect.Effect<void>;
-
-  // Metric actions
-  readonly updateMetrics: (
-    snapshot: unknown,
-    clientId?: number,
-  ) => Effect.Effect<void>;
-  readonly clearMetrics: () => Effect.Effect<void>;
-
   // Client actions
   readonly setClientsFromHashSet: (clients: unknown) => Effect.Effect<void>;
   readonly setActiveClient: (client: unknown) => Effect.Effect<void>;
@@ -89,32 +70,6 @@ export const makeStoreActionsLayer = (
   actions: StoreActions,
 ): Layer.Layer<StoreActionsService> =>
   Layer.succeed(StoreActionsService, {
-    addSpan: (span: unknown, clientId?: number) =>
-      Effect.sync(() => {
-        actions.addSpan(span as any, clientId);
-      }),
-    updateSpan: (span: unknown, clientId?: number) =>
-      Effect.sync(() => {
-        actions.updateSpan(span as any, clientId);
-      }),
-    addSpanEvent: (event: unknown, clientId?: number) =>
-      Effect.sync(() => {
-        actions.addSpanEvent(event as any, clientId);
-      }),
-    clearSpans: () =>
-      Effect.sync(() => {
-        actions.clearSpans();
-      }),
-
-    updateMetrics: (snapshot: unknown, clientId?: number) =>
-      Effect.sync(() => {
-        actions.updateMetrics(snapshot as any, clientId);
-      }),
-    clearMetrics: () =>
-      Effect.sync(() => {
-        actions.clearMetrics();
-      }),
-
     setClientsFromHashSet: (clients: unknown) =>
       Effect.sync(() => {
         actions.setClientsFromHashSet(clients as any);
@@ -170,8 +125,6 @@ export const makeStoreActionsLayer = (
  * Uses Effect Refs to track state changes that can be inspected in tests.
  */
 export interface MockStoreActionsState {
-  readonly spans: unknown[];
-  readonly metrics: unknown[];
   readonly clients: unknown[];
   readonly activeClient: unknown;
   readonly serverStatus: "starting" | "listening" | "connected";
@@ -184,8 +137,6 @@ export interface MockStoreActionsState {
 
 export const makeMockStoreActionsLayer = Effect.gen(function* () {
   const stateRef = yield* Ref.make<MockStoreActionsState>({
-    spans: [],
-    metrics: [],
     clients: [],
     activeClient: null,
     serverStatus: "starting",
@@ -197,25 +148,6 @@ export const makeMockStoreActionsLayer = Effect.gen(function* () {
   });
 
   const service: StoreActionsService = {
-    addSpan: (span: unknown, _clientId?: number) =>
-      Ref.update(stateRef, (s) => ({ ...s, spans: [...s.spans, span] })),
-    updateSpan: (span: unknown, _clientId?: number) =>
-      Ref.update(stateRef, (s) => ({
-        ...s,
-        spans: s.spans.map((existing: any) =>
-          existing.spanId === (span as any).spanId ? span : existing,
-        ),
-      })),
-    addSpanEvent: (_event: unknown, _clientId?: number) => Effect.void, // Simplified for mock
-    clearSpans: () => Ref.update(stateRef, (s) => ({ ...s, spans: [] })),
-
-    updateMetrics: (snapshot: unknown, _clientId?: number) =>
-      Ref.update(stateRef, (s) => ({
-        ...s,
-        metrics: (snapshot as any).metrics || [],
-      })),
-    clearMetrics: () => Ref.update(stateRef, (s) => ({ ...s, metrics: [] })),
-
     setClientsFromHashSet: (clients: unknown) =>
       Ref.update(stateRef, (s) => ({
         ...s,

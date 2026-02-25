@@ -7,7 +7,6 @@
 
 import type * as Option from "effect/Option";
 import type * as HashSet from "effect/HashSet";
-import type * as Domain from "@effect/experimental/DevTools/Domain";
 import type { Client } from "./server";
 
 // =============================================================================
@@ -164,18 +163,14 @@ export interface StoreState {
 }
 
 export interface StoreActions {
-  // Span actions
-  addSpan: (span: Domain.Span, clientId?: number) => void;
-  updateSpan: (span: Domain.Span, clientId?: number) => void;
-  addSpanEvent: (event: Domain.SpanEvent, clientId?: number) => void;
+  // Span actions (data flow handled by SpanStore + bridge)
   clearSpans: () => void;
   selectSpan: (spanId: string | null) => void;
   selectTrace: (traceId: string | null) => void;
   toggleSpanExpanded: (spanId: string) => void;
   toggleTraceExpanded: (traceId: string) => void;
 
-  // Metric actions
-  updateMetrics: (snapshot: Domain.MetricsSnapshot, clientId?: number) => void;
+  // Metric actions (data flow handled by SpanStore + bridge)
   clearMetrics: () => void;
   selectMetric: (name: string | null) => void;
 

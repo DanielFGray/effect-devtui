@@ -71,9 +71,7 @@ const makeClient = (serverClient: Server.Client, name?: string) =>
     console.log("[Server] New DevTools client connected!");
 
     const spans = yield* Effect.acquireRelease(
-      PubSub.sliding<Domain.Span | Domain.SpanEvent>({
-        capacity: 100,
-      }),
+      PubSub.unbounded<Domain.Span | Domain.SpanEvent>(),
       PubSub.shutdown,
     );
     const metrics = yield* Effect.acquireRelease(

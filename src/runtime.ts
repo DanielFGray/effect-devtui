@@ -3,6 +3,10 @@
  *
  * This module runs the Effect DevTools server and demo client OUTSIDE of Solid.
  * It uses the global store actions that are set when the StoreProvider mounts.
+ *
+ * Span and metric data flow through SpanStore (Effect service) and are bridged
+ * to Solid.js via the Solid bridge. Client/server status and layer analysis
+ * still flow through StoreActionsService.
  */
 
 import * as Effect from "effect/Effect";
@@ -14,8 +18,10 @@ import * as Schedule from "effect/Schedule";
 import * as Queue from "effect/Queue";
 import * as Fiber from "effect/Fiber";
 import * as Ref from "effect/Ref";
+import { pipe } from "effect/Function";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import { BunContext } from "@effect/platform-bun";
+import type { SetStoreFunction } from "solid-js/store";
 import { runServer, ServerContext, type Client } from "./server";
 import {
   StoreActionsService,
@@ -25,6 +31,13 @@ import type { StoreActions, StoreState } from "./storeTypes";
 import type * as Domain from "@effect/experimental/DevTools/Domain";
 import { runLayerAnalysis, applyLayerSuggestion } from "./layerAnalysis";
 import { runMcpServer, MCP_PORT } from "./mcp/server";
+import { SpanStore, SpanStoreLive } from "./spanStore/service";
+import { createSolidBridge } from "./spanStore/solidBridge";
+import {
+  simplifySpan,
+  simplifySpanEvent,
+  simplifyMetric,
+} from "./spanStore/simplify";
 
 export const PORT = 34437;
 
@@ -38,10 +51,10 @@ type AnalysisCommand =
   | { _tag: "Cancel" };
 
 /** Global command queue - the only module-level state we need */
-let analysisCommandQueue: Queue.Queue<AnalysisCommand> | null = null;
+const analysisCommandQueueRef: { current: Queue.Queue<AnalysisCommand> | null } = { current: null };
 
 /** Global store actions layer for apply fix (needed for triggerLayerFix) */
-let globalStoreActionsLayer: Layer.Layer<StoreActionsService> | null = null;
+const globalStoreActionsLayerRef: { current: Layer.Layer<StoreActionsService> | null } = { current: null };
 
 /**
  * Creates an analysis controller that manages the analysis fiber lifecycle
@@ -58,7 +71,7 @@ const createAnalysisController = Effect.gen(function* () {
   const commandQueue = yield* Queue.unbounded<AnalysisCommand>();
 
   // Expose the queue globally for the UI to send commands
-  analysisCommandQueue = commandQueue;
+  analysisCommandQueueRef.current = commandQueue;
 
   return {
     commandQueue,
@@ -131,172 +144,218 @@ const runAnalysisController = (controller: {
     );
   });
 
+// =============================================================================
+// Client Handler
+// =============================================================================
+
+/**
+ * Handles a connected client: subscribes to its span and metric streams,
+ * simplifies Domain types, and writes them to SpanStore.
+ */
+const handleClient = (client: Client) =>
+  Effect.gen(function* () {
+    const spanStore = yield* SpanStore;
+
+    console.log(
+      `[Runtime] Starting span subscription for client ${client.name}`,
+    );
+    const spanQueue = yield* client.spans;
+
+    // Subscribe to spans
+    yield* pipe(
+      Stream.fromQueue(spanQueue),
+      Stream.runForEach((spanOrEvent: Domain.Span | Domain.SpanEvent) =>
+        spanOrEvent._tag === "Span"
+          ? spanStore.addSpan(simplifySpan(spanOrEvent), client.id)
+          : spanStore.addSpanEvent(
+              simplifySpanEvent(spanOrEvent),
+              spanOrEvent.spanId,
+              client.id,
+            ),
+      ),
+      Effect.fork,
+    );
+
+    // Subscribe to metrics
+    const metricsQueue = yield* client.metrics;
+    yield* pipe(
+      Stream.fromQueue(metricsQueue),
+      Stream.runForEach((snapshot: Domain.MetricsSnapshot) =>
+        spanStore.updateMetrics(
+          (snapshot.metrics as Domain.Metric[]).map(simplifyMetric),
+          client.id,
+        ),
+      ),
+      Effect.fork,
+    );
+
+    // Poll for metrics every 500ms (similar to vscode-extension default)
+    yield* pipe(
+      client.requestMetrics,
+      Effect.repeat(Schedule.spaced("500 millis")),
+      Effect.fork,
+    );
+
+    // Keep the effect alive
+    yield* Effect.never;
+  }).pipe(Effect.scoped, Effect.ignoreLogged);
+
+// =============================================================================
+// Program
+// =============================================================================
+
+/**
+ * Bridge arguments passed from the Solid StoreProvider.
+ * When provided, the program forks the Solid bridge so SpanStore events
+ * are reflected in the reactive UI store.
+ */
+interface BridgeArgs {
+  readonly setStore: SetStoreFunction<StoreState>;
+  readonly getActiveClient: () => Option.Option<Client>;
+}
+
 /**
  * The main Effect program that:
  * 1. Starts the DevTools WebSocket server
  * 2. Subscribes to client connections
  * 3. Subscribes to span streams from connected clients (ALL clients, not just active)
- * 4. Writes all data to the store via actions
+ * 4. Writes span/metric data to SpanStore
+ * 5. Optionally forks the Solid bridge to sync SpanStore -> Solid store
  *
- * Now uses StoreActionsService via dependency injection instead of getGlobalActions().
+ * Uses SpanStore for data flow and StoreActionsService for client/server status.
  */
-const program = Effect.gen(function* () {
-  const actions = yield* StoreActionsService;
-  const { clients, activeClient: activeClientRef } = yield* ServerContext;
+const makeProgram = (bridgeArgs?: BridgeArgs) =>
+  Effect.gen(function* () {
+    const actions = yield* StoreActionsService;
+    const { clients, activeClient: activeClientRef } = yield* ServerContext;
 
-  // Subscribe to client changes and update the store
-  yield* Stream.runForEach(clients.changes, (clientSet) =>
-    Effect.gen(function* () {
-      yield* actions.setClientsFromHashSet(clientSet);
-      console.log(`[Runtime] Clients updated: ${HashSet.size(clientSet)}`);
-    }),
-  ).pipe(Effect.fork);
+    // Subscribe to client changes and update the store
+    yield* pipe(
+      Stream.runForEach(clients.changes, (clientSet) =>
+        Effect.gen(function* () {
+          yield* actions.setClientsFromHashSet(clientSet);
+          console.log(`[Runtime] Clients updated: ${HashSet.size(clientSet)}`);
+        }),
+      ),
+      Effect.fork,
+    );
 
-  // Subscribe to active client changes
-  yield* Stream.runForEach(activeClientRef.changes, (maybeClient) =>
-    Effect.gen(function* () {
-      yield* actions.setActiveClient(maybeClient);
-      if (Option.isSome(maybeClient)) {
-        console.log(`[Runtime] Active client set to ${maybeClient.value.name}`);
-      } else {
-        console.log("[Runtime] Active client cleared");
-      }
-    }),
-  ).pipe(Effect.fork);
-
-  // Handle each client's span stream and metrics
-  // This is similar to TracerProvider.ts and MetricsProvider.ts in vscode-extension
-  const handleClient = (client: Client) =>
-    Effect.gen(function* () {
-      const storeActions = yield* StoreActionsService;
-
-      console.log(
-        `[Runtime] Starting span subscription for client ${client.name}`,
-      );
-      const spanQueue = yield* client.spans;
-      console.log(
-        `[Runtime] Got span queue for client ${client.name}, starting stream`,
-      );
-
-      // Subscribe to spans
-      yield* Stream.runForEach(
-        Stream.fromQueue(spanQueue),
-        (spanOrEvent: Domain.Span | Domain.SpanEvent) =>
-          Effect.gen(function* () {
+    // Subscribe to active client changes
+    yield* pipe(
+      Stream.runForEach(activeClientRef.changes, (maybeClient) =>
+        Effect.gen(function* () {
+          yield* actions.setActiveClient(maybeClient);
+          if (Option.isSome(maybeClient)) {
             console.log(
-              `[Runtime] Received ${spanOrEvent._tag} from ${client.name}`,
+              `[Runtime] Active client set to ${maybeClient.value.name}`,
             );
-            if (spanOrEvent._tag === "Span") {
-              console.log(
-                `[Runtime] Calling storeActions.addSpan for ${spanOrEvent.name}`,
-              );
-              yield* storeActions.addSpan(spanOrEvent, client.id);
-              console.log(`[Runtime] Called storeActions.addSpan successfully`);
-            } else if (spanOrEvent._tag === "SpanEvent") {
-              console.log(
-                `[Runtime] Calling storeActions.addSpanEvent for ${spanOrEvent.name}`,
-              );
-              yield* storeActions.addSpanEvent(spanOrEvent, client.id);
-              console.log(
-                `[Runtime] Called storeActions.addSpanEvent successfully`,
-              );
-            }
-          }),
-      ).pipe(Effect.fork);
-
-      // Subscribe to metrics
-      console.log(
-        `[Runtime] Starting metrics subscription for client ${client.name}`,
-      );
-      const metricsQueue = yield* client.metrics;
-      yield* Stream.runForEach(
-        Stream.fromQueue(metricsQueue),
-        (snapshot: Domain.MetricsSnapshot) =>
-          Effect.gen(function* () {
-            yield* storeActions.updateMetrics(snapshot, client.id);
-          }),
-      ).pipe(Effect.fork);
-
-      // Poll for metrics every 500ms (similar to vscode-extension default)
-      yield* client.requestMetrics.pipe(
-        Effect.repeat(Schedule.spaced("500 millis")),
-        Effect.fork,
-      );
-
-      // Keep the effect alive
-      yield* Effect.never;
-    }).pipe(Effect.scoped, Effect.ignoreLogged);
-
-  // Track active client fibers to manage their lifecycle
-  const clientFibers = new Map<number, Fiber.RuntimeFiber<void, unknown>>();
-
-  // Subscribe to ALL clients and handle each concurrently
-  // This ensures we get spans from all connected clients, not just the active one
-  // We track clients by ID to avoid restarting subscriptions when the set changes
-  yield* clients.changes.pipe(
-    Stream.runForEach((clientSet) =>
-      Effect.gen(function* () {
-        const currentIds = new Set(Array.from(clientSet).map((c) => c.id));
-
-        // Stop fibers for clients that are no longer present
-        for (const [id, fiber] of clientFibers) {
-          if (!currentIds.has(id)) {
-            console.log(`[Runtime] Client ${id} disconnected, stopping fiber`);
-            yield* Fiber.interrupt(fiber);
-            clientFibers.delete(id);
+          } else {
+            console.log("[Runtime] Active client cleared");
           }
-        }
+        }),
+      ),
+      Effect.fork,
+    );
 
-        // Start fibers for new clients
-        for (const client of clientSet) {
-          if (!clientFibers.has(client.id)) {
-            console.log(
-              `[Runtime] New client ${client.name} (${client.id}), starting fiber`,
-            );
-            const fiber = yield* handleClient(client).pipe(Effect.fork);
-            clientFibers.set(client.id, fiber);
-          }
-        }
-      }),
-    ),
-    Effect.fork,
-  );
+    // Track active client fibers to manage their lifecycle
+    const clientFibers = new Map<number, Fiber.RuntimeFiber<void, unknown>>();
 
-  // Run the server
-  yield* Effect.fork(runServer(PORT));
+    // Subscribe to ALL clients and handle each concurrently
+    // This ensures we get spans from all connected clients, not just the active one
+    // We track clients by ID to avoid restarting subscriptions when the set changes
+    yield* pipe(
+      clients.changes,
+      Stream.runForEach((clientSet) =>
+        Effect.gen(function* () {
+          const currentIds = new Set(Array.from(clientSet).map((c) => c.id));
 
-  // Wait for server to be ready
-  yield* Effect.sleep("500 millis");
-  yield* actions.setServerStatus("listening");
-  console.log("[Runtime] Server is listening");
+          // Stop fibers for clients that are no longer present
+          yield* Effect.forEach(
+            Array.from(clientFibers.entries()).filter(
+              ([id]) => !currentIds.has(id),
+            ),
+            ([id, fiber]) =>
+              Effect.gen(function* () {
+                console.log(
+                  `[Runtime] Client ${id} disconnected, stopping fiber`,
+                );
+                yield* Fiber.interrupt(fiber);
+                clientFibers.delete(id);
+              }),
+            { discard: true },
+          );
 
-  // Create and run the analysis controller
-  const analysisController = yield* createAnalysisController;
-  yield* Effect.fork(runAnalysisController(analysisController));
+          // Start fibers for new clients
+          yield* Effect.forEach(
+            Array.from(clientSet).filter((c) => !clientFibers.has(c.id)),
+            (client) =>
+              Effect.gen(function* () {
+                console.log(
+                  `[Runtime] New client ${client.name} (${client.id}), starting fiber`,
+                );
+                const fiber = yield* handleClient(client).pipe(Effect.fork);
+                clientFibers.set(client.id, fiber);
+              }),
+            { discard: true },
+          );
+        }),
+      ),
+      Effect.fork,
+    );
 
-  // Run forever
-  yield* Effect.never;
-});
+    // Run the server
+    yield* Effect.fork(runServer(PORT));
 
-let runtimeStarted = false;
+    // Wait for server to be ready
+    yield* Effect.sleep("500 millis");
+    yield* actions.setServerStatus("listening");
+    console.log("[Runtime] Server is listening");
+
+    // Create and run the analysis controller
+    const analysisController = yield* createAnalysisController;
+    yield* Effect.fork(runAnalysisController(analysisController));
+
+    // Start the Solid bridge if bridge args are provided
+    if (bridgeArgs) {
+      yield* Effect.fork(
+        createSolidBridge(bridgeArgs.setStore, bridgeArgs.getActiveClient).pipe(
+          Effect.scoped,
+          Effect.catchAllCause((cause) =>
+            Effect.sync(() =>
+              console.error("[Runtime] Solid bridge error:", cause),
+            ),
+          ),
+        ),
+      );
+      console.log("[Runtime] Solid bridge started");
+    }
+
+    // Run forever
+    yield* Effect.never;
+  });
+
+const runtimeStartedRef = { current: false };
 
 /**
- * Start the Effect runtime with the provided store actions and store getter.
+ * Start the Effect runtime with the provided store actions, store getter,
+ * and optional Solid store setter for the SpanStore bridge.
  *
  * The store actions are passed in from the Solid StoreProvider,
  * wrapped in a Layer, and provided to the Effect program.
  * The store getter provides read-only access to the current store state for MCP tools.
+ * The setStore enables the SpanStore -> Solid bridge for reactive UI updates.
  */
 export function startRuntime(
   storeActions: StoreActions,
   getStore?: () => StoreState,
+  setStore?: SetStoreFunction<StoreState>,
 ): void {
-  if (runtimeStarted) {
+  if (runtimeStartedRef.current) {
     console.log("[Runtime] Runtime already started, skipping");
     return;
   }
 
-  runtimeStarted = true;
+  runtimeStartedRef.current = true;
   console.log("[Runtime] Starting Effect runtime");
 
   // Provide WebSocketConstructor for the server
@@ -304,15 +363,26 @@ export function startRuntime(
 
   // Create the StoreActionsService layer from the real Solid actions
   const StoreActionsLive = makeStoreActionsLayer(storeActions);
-  globalStoreActionsLayer = StoreActionsLive;
-  // Compose all layers (no longer includes MCP - it runs separately)
+  globalStoreActionsLayerRef.current = StoreActionsLive;
+
+  // Compose all layers including SpanStoreLive
   const MainLive = Layer.mergeAll(
     Layer.provide(ServerContext.Live, WebSocketLive),
     StoreActionsLive,
+    SpanStoreLive,
     BunContext.layer,
   );
 
-  const runnable = program.pipe(Effect.provide(MainLive));
+  // Build bridge args if setStore is provided
+  const bridgeArgs: BridgeArgs | undefined =
+    setStore && getStore
+      ? {
+          setStore,
+          getActiveClient: () => getStore().activeClient,
+        }
+      : undefined;
+
+  const runnable = makeProgram(bridgeArgs).pipe(Effect.provide(MainLive));
 
   // Run the Effect program (fire and forget)
   Effect.runFork(runnable);
@@ -339,9 +409,12 @@ export function startRuntime(
 export function triggerLayerAnalysis(
   projectPath: string = process.cwd(),
 ): void {
-  if (analysisCommandQueue) {
+  if (analysisCommandQueueRef.current) {
     Effect.runSync(
-      Queue.offer(analysisCommandQueue, { _tag: "Start", projectPath }),
+      Queue.offer(analysisCommandQueueRef.current, {
+        _tag: "Start",
+        projectPath,
+      }),
     );
   } else {
     console.warn("[Runtime] Analysis command queue not initialized yet");
@@ -353,8 +426,10 @@ export function triggerLayerAnalysis(
  * Sends a Cancel command to the analysis controller
  */
 export function cancelLayerAnalysis(): void {
-  if (analysisCommandQueue) {
-    Effect.runSync(Queue.offer(analysisCommandQueue, { _tag: "Cancel" }));
+  if (analysisCommandQueueRef.current) {
+    Effect.runSync(
+      Queue.offer(analysisCommandQueueRef.current, { _tag: "Cancel" }),
+    );
   } else {
     console.warn("[Runtime] Analysis command queue not initialized yet");
   }
@@ -366,13 +441,15 @@ export function cancelLayerAnalysis(): void {
  */
 export function triggerLayerFix(): void {
   console.log("[Runtime] triggerLayerFix called");
-  if (globalStoreActionsLayer) {
+  if (globalStoreActionsLayerRef.current) {
     console.log(
       "[Runtime] globalStoreActionsLayer is available, running applyLayerSuggestion",
     );
     // Run applyLayerSuggestion in the runtime
     Effect.runPromise(
-      applyLayerSuggestion().pipe(Effect.provide(globalStoreActionsLayer)),
+      applyLayerSuggestion().pipe(
+        Effect.provide(globalStoreActionsLayerRef.current),
+      ),
     )
       .then(() => {
         console.log("[Runtime] applyLayerSuggestion completed successfully");
