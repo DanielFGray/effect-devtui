@@ -125,17 +125,51 @@ export function StoreProvider(props: ParentProps) {
   }, 1000);
 
   // Helper types for navigation
-  type NavigableItem = { type: "span"; span: SimpleSpan };
+  type NavigableItem =
+    | { type: "trace"; traceId: string }
+    | { type: "span"; span: SimpleSpan };
 
-  // Helper to get visible spans for navigation (simplified - no trace grouping)
-  const getVisibleItems = (expandedIds: Set<string>): NavigableItem[] => {
+  // Helper to get visible items for navigation (with trace grouping)
+  const getVisibleItems = (
+    expandedSpanIds: Set<string>,
+    expandedTraceIds: Set<string>,
+  ): NavigableItem[] => {
     const result: NavigableItem[] = [];
-    const spanMap = new Map(store.spans.map((s) => [s.spanId, s]));
+    const spans = store.spans;
+
+    // Deduplicate spans
+    const deduped = new Map<string, SimpleSpan>();
+    for (const span of spans) {
+      const existing = deduped.get(span.spanId);
+      if (!existing || span.status === "ended") {
+        deduped.set(span.spanId, span);
+      }
+    }
+    const uniqueSpans = Array.from(deduped.values());
+
+    // Apply filter if active
+    let filteredSpans = uniqueSpans;
+    if (store.ui.spanFilterQuery && store.ui.spanFilterQuery.trim()) {
+      const lowerQuery = store.ui.spanFilterQuery.toLowerCase();
+      filteredSpans = uniqueSpans.filter((span) =>
+        span.name.toLowerCase().includes(lowerQuery),
+      );
+    }
+
+    const spanMap = new Map(filteredSpans.map((s) => [s.spanId, s]));
     const visited = new Set<string>();
 
-    // Build children map
+    // Group spans by traceId
+    const traceGroups = new Map<string, SimpleSpan[]>();
+    for (const span of filteredSpans) {
+      const group = traceGroups.get(span.traceId) || [];
+      group.push(span);
+      traceGroups.set(span.traceId, group);
+    }
+
+    // Build children map for span DFS
     const childrenMap = new Map<string, SimpleSpan[]>();
-    for (const span of store.spans) {
+    for (const span of filteredSpans) {
       if (span.parent) {
         const children = childrenMap.get(span.parent) || [];
         children.push(span);
@@ -152,20 +186,14 @@ export function StoreProvider(props: ParentProps) {
       });
     }
 
-    // DFS to collect visible spans
+    // DFS to collect visible spans within a trace
     const visitSpan = (span: SimpleSpan) => {
-      // Prevent visiting the same span twice
-      if (visited.has(span.spanId)) {
-        console.log(
-          `[Store] getVisibleItems: Skipping duplicate visit to ${span.name} (${span.spanId.substring(0, 8)})`,
-        );
-        return;
-      }
+      if (visited.has(span.spanId)) return;
       visited.add(span.spanId);
 
       result.push({ type: "span", span });
 
-      if (expandedIds.has(span.spanId)) {
+      if (expandedSpanIds.has(span.spanId)) {
         const children = childrenMap.get(span.spanId) || [];
         for (const child of children) {
           visitSpan(child);
@@ -173,21 +201,41 @@ export function StoreProvider(props: ParentProps) {
       }
     };
 
-    // Get root spans
-    const rootSpans = store.spans.filter(
-      (s) => s.parent === null || !spanMap.has(s.parent),
-    );
-
-    // Sort root spans by start time
-    rootSpans.sort((a, b) => {
-      if (a.startTime < b.startTime) return -1;
-      if (a.startTime > b.startTime) return 1;
+    // Sort trace groups by earliest span start time
+    const traceEntries = Array.from(traceGroups.entries());
+    traceEntries.sort((a, b) => {
+      const aMin = a[1].reduce(
+        (min, s) => (s.startTime < min ? s.startTime : min),
+        a[1][0].startTime,
+      );
+      const bMin = b[1].reduce(
+        (min, s) => (s.startTime < min ? s.startTime : min),
+        b[1][0].startTime,
+      );
+      if (aMin < bMin) return -1;
+      if (aMin > bMin) return 1;
       return 0;
     });
 
-    // Visit each root span
-    for (const root of rootSpans) {
-      visitSpan(root);
+    // Emit trace headers + their spans
+    for (const [traceId, traceSpans] of traceEntries) {
+      result.push({ type: "trace", traceId });
+
+      if (expandedTraceIds.has(traceId)) {
+        // Get root spans within this trace
+        const rootSpans = traceSpans.filter(
+          (s) => s.parent === null || !spanMap.has(s.parent),
+        );
+        rootSpans.sort((a, b) => {
+          if (a.startTime < b.startTime) return -1;
+          if (a.startTime > b.startTime) return 1;
+          return 0;
+        });
+
+        for (const root of rootSpans) {
+          visitSpan(root);
+        }
+      }
     }
 
     return result;
@@ -243,15 +291,14 @@ export function StoreProvider(props: ParentProps) {
     },
 
     toggleTraceExpanded: (traceId: string) => {
-      setStore(
-        produce((draft) => {
-          if (draft.ui.expandedTraceIds.has(traceId)) {
-            draft.ui.expandedTraceIds.delete(traceId);
-          } else {
-            draft.ui.expandedTraceIds.add(traceId);
-          }
-        }),
-      );
+      // Create a new Set to trigger Solid.js reactivity
+      const newExpandedIds = new Set(store.ui.expandedTraceIds);
+      if (newExpandedIds.has(traceId)) {
+        newExpandedIds.delete(traceId);
+      } else {
+        newExpandedIds.add(traceId);
+      }
+      setStore("ui", "expandedTraceIds", newExpandedIds);
     },
 
     clearMetrics: () => {
@@ -441,16 +488,26 @@ export function StoreProvider(props: ParentProps) {
         const newIdx = currentIdx <= 0 ? clients.length - 1 : currentIdx - 1;
         actions.selectClientByIndex(newIdx);
       } else if (store.ui.focusedSection === "spans") {
-        const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
+        const visibleItems = getVisibleItems(
+          store.ui.expandedSpanIds,
+          store.ui.expandedTraceIds,
+        );
         if (visibleItems.length === 0) return;
 
-        // Find current selection
+        // Find current selection (could be a trace or a span)
         const currentSpanId = store.ui.selectedSpanId;
+        const currentTraceId = store.ui.selectedTraceId;
 
         let currentIdx = -1;
-        if (currentSpanId) {
+        if (currentTraceId) {
           currentIdx = visibleItems.findIndex(
-            (item) => item.span.spanId === currentSpanId,
+            (item) =>
+              item.type === "trace" && item.traceId === currentTraceId,
+          );
+        } else if (currentSpanId) {
+          currentIdx = visibleItems.findIndex(
+            (item) =>
+              item.type === "span" && item.span.spanId === currentSpanId,
           );
         }
 
@@ -458,8 +515,15 @@ export function StoreProvider(props: ParentProps) {
           currentIdx <= 0 ? visibleItems.length - 1 : currentIdx - 1;
         const newItem = visibleItems[newIdx];
 
-        setStore("ui", "selectedSpanId", newItem.span.spanId);
-        setStore("ui", "selectedTraceId", null);
+        batch(() => {
+          if (newItem.type === "trace") {
+            setStore("ui", "selectedTraceId", newItem.traceId);
+            setStore("ui", "selectedSpanId", null);
+          } else {
+            setStore("ui", "selectedSpanId", newItem.span.spanId);
+            setStore("ui", "selectedTraceId", null);
+          }
+        });
       } else if (store.ui.focusedSection === "metrics") {
         const metrics = store.metrics;
         if (metrics.length === 0) return;
@@ -476,7 +540,7 @@ export function StoreProvider(props: ParentProps) {
 
     navigateDown: () => {
       console.log(
-        `[Store] navigateDown: ENTRY - store.spans.length=${store.spans.length}, store object id=${typeof store}`,
+        `[Store] navigateDown: ENTRY - store.spans.length=${store.spans.length}`,
       );
       if (store.ui.focusedSection === "clients") {
         const clients = store.clients;
@@ -486,49 +550,42 @@ export function StoreProvider(props: ParentProps) {
         const newIdx = currentIdx >= clients.length - 1 ? 0 : currentIdx + 1;
         actions.selectClientByIndex(newIdx);
       } else if (store.ui.focusedSection === "spans") {
-        const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
-        console.log(
-          `[Store] navigateDown: ${visibleItems.length} visible items, expandedIds=${Array.from(
-            store.ui.expandedSpanIds,
-          )
-            .map((id) => id.substring(0, 4))
-            .join(",")}`,
-        );
-        console.log(
-          `[Store] navigateDown: visibleItems length=${visibleItems.length}, names=${visibleItems
-            .map((item) => item.span.name)
-            .slice(0, 10)
-            .join(" -> ")}`,
+        const visibleItems = getVisibleItems(
+          store.ui.expandedSpanIds,
+          store.ui.expandedTraceIds,
         );
         if (visibleItems.length === 0) return;
 
-        // Find current selection
+        // Find current selection (could be a trace or a span)
         const currentSpanId = store.ui.selectedSpanId;
+        const currentTraceId = store.ui.selectedTraceId;
 
         let currentIdx = -1;
-        if (currentSpanId) {
+        if (currentTraceId) {
           currentIdx = visibleItems.findIndex(
-            (item) => item.span.spanId === currentSpanId,
+            (item) =>
+              item.type === "trace" && item.traceId === currentTraceId,
+          );
+        } else if (currentSpanId) {
+          currentIdx = visibleItems.findIndex(
+            (item) =>
+              item.type === "span" && item.span.spanId === currentSpanId,
           );
         }
-
-        console.log(
-          `[Store] navigateDown: currentSpanId=${currentSpanId?.substring(0, 8)}, currentIdx=${currentIdx}`,
-        );
-        console.log(
-          `[Store] navigateDown: visibleItems=${visibleItems.map((item) => item.span.name).join(" -> ")}`,
-        );
 
         const newIdx =
           currentIdx >= visibleItems.length - 1 ? 0 : currentIdx + 1;
         const newItem = visibleItems[newIdx];
 
-        console.log(
-          `[Store] navigateDown: newIdx=${newIdx}, newItem=${newItem.span.name}`,
-        );
-
-        setStore("ui", "selectedSpanId", newItem.span.spanId);
-        setStore("ui", "selectedTraceId", null);
+        batch(() => {
+          if (newItem.type === "trace") {
+            setStore("ui", "selectedTraceId", newItem.traceId);
+            setStore("ui", "selectedSpanId", null);
+          } else {
+            setStore("ui", "selectedSpanId", newItem.span.spanId);
+            setStore("ui", "selectedTraceId", null);
+          }
+        });
       } else if (store.ui.focusedSection === "metrics") {
         const metrics = store.metrics;
         if (metrics.length === 0) return;
@@ -546,9 +603,22 @@ export function StoreProvider(props: ParentProps) {
     navigateLeft: () => {
       if (store.ui.focusedSection !== "spans") return;
 
+      const selectedTraceId = store.ui.selectedTraceId;
       const selectedSpanId = store.ui.selectedSpanId;
+
+      // If a trace header is selected
+      if (selectedTraceId) {
+        // Collapse the trace if it is expanded
+        if (store.ui.expandedTraceIds.has(selectedTraceId)) {
+          actions.toggleTraceExpanded(selectedTraceId);
+        } else {
+          // Already collapsed, navigate up
+          actions.navigateUp();
+        }
+        return;
+      }
+
       if (!selectedSpanId) {
-        // No selection, just navigate up
         actions.navigateUp();
         return;
       }
@@ -563,28 +633,81 @@ export function StoreProvider(props: ParentProps) {
       if (store.ui.expandedSpanIds.has(selectedSpanId)) {
         actions.toggleSpanExpanded(selectedSpanId);
       } else if (selectedSpan.parent) {
-        // If collapsed and has parent, navigate to parent
-        const parentSpan = store.spans.find(
-          (s) => s.spanId === selectedSpan.parent,
-        );
+        // If collapsed and has parent, check if parent is in the visible spans
+        const spanMap = new Map(store.spans.map((s) => [s.spanId, s]));
+        const parentSpan = spanMap.get(selectedSpan.parent);
         if (parentSpan) {
-          setStore("ui", "selectedSpanId", parentSpan.spanId);
+          // Check if the parent is a root span within the trace and not expanded
+          const parentIsRoot =
+            parentSpan.parent === null || !spanMap.has(parentSpan.parent);
+          if (
+            parentIsRoot &&
+            !store.ui.expandedSpanIds.has(parentSpan.spanId)
+          ) {
+            // Navigate to the trace header instead
+            batch(() => {
+              setStore("ui", "selectedTraceId", selectedSpan.traceId);
+              setStore("ui", "selectedSpanId", null);
+            });
+          } else {
+            setStore("ui", "selectedSpanId", parentSpan.spanId);
+          }
         } else {
-          // Parent not found, navigate up instead
-          actions.navigateUp();
+          // Parent not in view, go to trace header
+          batch(() => {
+            setStore("ui", "selectedTraceId", selectedSpan.traceId);
+            setStore("ui", "selectedSpanId", null);
+          });
         }
       } else {
-        // No parent and not expanded, navigate up
-        actions.navigateUp();
+        // Root span with no parent - go to trace header
+        batch(() => {
+          setStore("ui", "selectedTraceId", selectedSpan.traceId);
+          setStore("ui", "selectedSpanId", null);
+        });
       }
     },
 
     navigateRight: () => {
       if (store.ui.focusedSection !== "spans") return;
 
+      const selectedTraceId = store.ui.selectedTraceId;
       const selectedSpanId = store.ui.selectedSpanId;
+
+      // If a trace header is selected
+      if (selectedTraceId) {
+        // Expand the trace if not already expanded
+        if (!store.ui.expandedTraceIds.has(selectedTraceId)) {
+          actions.toggleTraceExpanded(selectedTraceId);
+        } else {
+          // Already expanded, navigate to first span in the trace
+          const visibleItems = getVisibleItems(
+            store.ui.expandedSpanIds,
+            store.ui.expandedTraceIds,
+          );
+          const currentIdx = visibleItems.findIndex(
+            (item) =>
+              item.type === "trace" && item.traceId === selectedTraceId,
+          );
+          if (currentIdx >= 0 && currentIdx < visibleItems.length - 1) {
+            const nextItem = visibleItems[currentIdx + 1];
+            batch(() => {
+              if (nextItem.type === "span") {
+                setStore("ui", "selectedSpanId", nextItem.span.spanId);
+                setStore("ui", "selectedTraceId", null);
+              } else {
+                // Shouldn't happen (next trace), navigate down
+                actions.navigateDown();
+              }
+            });
+          } else {
+            actions.navigateDown();
+          }
+        }
+        return;
+      }
+
       if (!selectedSpanId) {
-        // No selection, just navigate down
         actions.navigateDown();
         return;
       }
@@ -593,7 +716,6 @@ export function StoreProvider(props: ParentProps) {
       const hasChildren = store.spans.some((s) => s.parent === selectedSpanId);
 
       if (!hasChildren) {
-        // No children, navigate down instead
         actions.navigateDown();
         return;
       }
@@ -603,23 +725,27 @@ export function StoreProvider(props: ParentProps) {
         actions.toggleSpanExpanded(selectedSpanId);
       } else {
         // If already expanded, navigate to first child
-        const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
+        const visibleItems = getVisibleItems(
+          store.ui.expandedSpanIds,
+          store.ui.expandedTraceIds,
+        );
         const currentIdx = visibleItems.findIndex(
-          (item) => item.span.spanId === selectedSpanId,
+          (item) =>
+            item.type === "span" && item.span.spanId === selectedSpanId,
         );
 
         // First child should be the next item in the visible list
         if (currentIdx >= 0 && currentIdx < visibleItems.length - 1) {
           const nextItem = visibleItems[currentIdx + 1];
-          // Verify it's actually a child
-          if (nextItem.span.parent === selectedSpanId) {
+          if (
+            nextItem.type === "span" &&
+            nextItem.span.parent === selectedSpanId
+          ) {
             setStore("ui", "selectedSpanId", nextItem.span.spanId);
           } else {
-            // Not a child (shouldn't happen), navigate down instead
             actions.navigateDown();
           }
         } else {
-          // No next item, navigate down as fallback
           actions.navigateDown();
         }
       }
@@ -628,27 +754,54 @@ export function StoreProvider(props: ParentProps) {
     goToFirstSpan: () => {
       if (store.ui.focusedSection !== "spans") return;
 
-      const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
+      const visibleItems = getVisibleItems(
+        store.ui.expandedSpanIds,
+        store.ui.expandedTraceIds,
+      );
       if (visibleItems.length === 0) return;
 
       const firstItem = visibleItems[0];
-      setStore("ui", "selectedSpanId", firstItem.span.spanId);
-      setStore("ui", "selectedTraceId", null);
+      batch(() => {
+        if (firstItem.type === "trace") {
+          setStore("ui", "selectedTraceId", firstItem.traceId);
+          setStore("ui", "selectedSpanId", null);
+        } else {
+          setStore("ui", "selectedSpanId", firstItem.span.spanId);
+          setStore("ui", "selectedTraceId", null);
+        }
+      });
     },
 
     goToLastSpan: () => {
       if (store.ui.focusedSection !== "spans") return;
 
-      const visibleItems = getVisibleItems(store.ui.expandedSpanIds);
+      const visibleItems = getVisibleItems(
+        store.ui.expandedSpanIds,
+        store.ui.expandedTraceIds,
+      );
       if (visibleItems.length === 0) return;
 
       const lastItem = visibleItems[visibleItems.length - 1];
-      setStore("ui", "selectedSpanId", lastItem.span.spanId);
-      setStore("ui", "selectedTraceId", null);
+      batch(() => {
+        if (lastItem.type === "trace") {
+          setStore("ui", "selectedTraceId", lastItem.traceId);
+          setStore("ui", "selectedSpanId", null);
+        } else {
+          setStore("ui", "selectedSpanId", lastItem.span.spanId);
+          setStore("ui", "selectedTraceId", null);
+        }
+      });
     },
 
     toggleExpand: () => {
       if (store.ui.focusedSection === "spans") {
+        // Check if a trace header is selected
+        const selectedTraceId = store.ui.selectedTraceId;
+        if (selectedTraceId) {
+          actions.toggleTraceExpanded(selectedTraceId);
+          return;
+        }
+
         // Check if a span is selected
         const selectedSpanId = store.ui.selectedSpanId;
         if (selectedSpanId) {

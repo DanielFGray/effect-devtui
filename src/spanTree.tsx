@@ -1,6 +1,6 @@
 /**
  * Span Tree View Component
- * Displays spans in a hierarchical tree structure with selection and expand/collapse
+ * Displays spans grouped by trace in a hierarchical tree with selection and expand/collapse
  */
 
 import { For, Show, createMemo } from "solid-js";
@@ -22,25 +22,41 @@ function getSpanDurationMs(span: {
 }
 
 /**
+ * Metadata for a trace group header row
+ */
+interface TraceGroupInfo {
+  traceId: string;
+  rootSpanName: string;
+  spanCount: number;
+  durationMs: number | null;
+  hasError: boolean;
+}
+
+/**
  * Tree node with depth information
  */
 interface TreeNode {
   span: SimpleSpan | null;
   traceId: string | null;
+  traceInfo: TraceGroupInfo | null;
   depth: number;
   hasChildren: boolean;
   isLastChild: boolean;
-  isTraceGroup: boolean; // Always false now, kept for compatibility
+  isTraceGroup: boolean;
   ancestorLines: boolean[]; // For each depth level, whether to draw a vertical line
   rootSpan: SimpleSpan | null; // Reference to root span for waterfall time calculations
 }
 
 /**
- * Build hierarchical span tree without trace grouping
+ * Build hierarchical span tree with trace grouping.
+ *
+ * Spans are grouped by traceId. Each trace produces a header node followed by
+ * its span tree (if expanded).
  */
 function buildHierarchicalSpanTree(
   spans: ReadonlyArray<SimpleSpan>,
   expandedSpanIds: Set<string>,
+  expandedTraceIds: Set<string>,
   filterQuery?: string,
 ): TreeNode[] {
   const result: TreeNode[] = [];
@@ -67,7 +83,31 @@ function buildHierarchicalSpanTree(
   const spanMap = new Map(uniqueSpans.map((s) => [s.spanId, s]));
   const visited = new Set<string>(); // Track visited spans to prevent duplicates
 
-  // Build children map for all spans
+  // Group spans by traceId
+  const traceGroups = new Map<string, SimpleSpan[]>();
+  for (const span of uniqueSpans) {
+    const group = traceGroups.get(span.traceId) || [];
+    group.push(span);
+    traceGroups.set(span.traceId, group);
+  }
+
+  // Sort trace groups by earliest span start time
+  const traceEntries = Array.from(traceGroups.entries());
+  traceEntries.sort((a, b) => {
+    const aMin = a[1].reduce(
+      (min, s) => (s.startTime < min ? s.startTime : min),
+      a[1][0].startTime,
+    );
+    const bMin = b[1].reduce(
+      (min, s) => (s.startTime < min ? s.startTime : min),
+      b[1][0].startTime,
+    );
+    if (aMin < bMin) return -1;
+    if (aMin > bMin) return 1;
+    return 0;
+  });
+
+  // Build children map for all spans (needed for DFS)
   const childrenMap = new Map<string, SimpleSpan[]>();
   for (const span of uniqueSpans) {
     if (span.parent) {
@@ -86,7 +126,7 @@ function buildHierarchicalSpanTree(
     });
   }
 
-  // DFS to build visible tree
+  // DFS to build visible span tree within a trace
   const visitSpan = (
     span: SimpleSpan,
     depth: number,
@@ -94,13 +134,7 @@ function buildHierarchicalSpanTree(
     ancestorLines: boolean[],
     rootSpan: SimpleSpan,
   ) => {
-    // Prevent visiting the same span twice
-    if (visited.has(span.spanId)) {
-      console.log(
-        `[SpanTree] WARNING: Attempt to visit span ${span.name} (${span.spanId.substring(0, 8)}) twice! Skipping.`,
-      );
-      return;
-    }
+    if (visited.has(span.spanId)) return;
     visited.add(span.spanId);
 
     const children = childrenMap.get(span.spanId) || [];
@@ -110,6 +144,7 @@ function buildHierarchicalSpanTree(
     result.push({
       span,
       traceId: null,
+      traceInfo: null,
       depth,
       hasChildren,
       isLastChild,
@@ -121,29 +156,61 @@ function buildHierarchicalSpanTree(
     if (hasChildren && isExpanded) {
       children.forEach((child, idx) => {
         const childIsLast = idx === children.length - 1;
-        // For children, add to ancestorLines whether current node continues down
         const newAncestorLines = [...ancestorLines, !isLastChild];
         visitSpan(child, depth + 1, childIsLast, newAncestorLines, rootSpan);
       });
     }
   };
 
-  // Get root spans (spans with no parent or parent not in the current span set)
-  const rootSpans = uniqueSpans.filter(
-    (s) => s.parent === null || !spanMap.has(s.parent),
-  );
+  // Emit each trace group
+  for (const [traceId, traceSpans] of traceEntries) {
+    // Find root span for this trace (span with no parent or parent not in span set)
+    const rootSpans = traceSpans.filter(
+      (s) => s.parent === null || !spanMap.has(s.parent),
+    );
+    rootSpans.sort((a, b) => {
+      if (a.startTime < b.startTime) return -1;
+      if (a.startTime > b.startTime) return 1;
+      return 0;
+    });
 
-  // Sort root spans by start time
-  rootSpans.sort((a, b) => {
-    if (a.startTime < b.startTime) return -1;
-    if (a.startTime > b.startTime) return 1;
-    return 0;
-  });
+    const primaryRoot = rootSpans.length > 0 ? rootSpans[0] : traceSpans[0];
 
-  // Visit each root span (passing itself as the rootSpan reference)
-  rootSpans.forEach((root, idx) => {
-    visitSpan(root, 0, idx === rootSpans.length - 1, [], root);
-  });
+    // Compute trace header info
+    const rootDurationMs = getSpanDurationMs(primaryRoot);
+    const hasError = traceSpans.some((s) => {
+      const errAttr = s.attributes["error"] ?? s.attributes["error.message"];
+      return errAttr !== undefined && errAttr !== null;
+    });
+
+    const traceInfo: TraceGroupInfo = {
+      traceId,
+      rootSpanName: primaryRoot.name,
+      spanCount: traceSpans.length,
+      durationMs: rootDurationMs,
+      hasError,
+    };
+
+    // Emit trace header node
+    result.push({
+      span: null,
+      traceId,
+      traceInfo,
+      depth: 0,
+      hasChildren: traceSpans.length > 0,
+      isLastChild: false,
+      isTraceGroup: true,
+      ancestorLines: [],
+      rootSpan: null,
+    });
+
+    // If trace is expanded, emit its span tree
+    if (expandedTraceIds.has(traceId)) {
+      rootSpans.forEach((root, idx) => {
+        visitSpan(root, 0, idx === rootSpans.length - 1, [], root);
+      });
+    }
+  }
 
   return result;
 }
@@ -353,21 +420,34 @@ function formatIdDisplay(id: string, maxLength: number = 16): string {
 }
 
 /**
- * Main span tree view component with hierarchy
+ * Format a duration in ms for trace headers
+ */
+function formatDurationMs(ms: number | null): string {
+  if (ms === null) return "running";
+  if (ms < 1) return `${(ms * 1000).toFixed(0)}us`;
+  if (ms < 1000) return `${ms.toFixed(1)}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
+/**
+ * Main span tree view component with hierarchy and trace grouping
  */
 export function SpanTreeView(props: {
   spans: ReadonlyArray<SimpleSpan>;
   selectedSpanId: string | null;
+  selectedTraceId: string | null;
   expandedSpanIds: Set<string>;
+  expandedTraceIds: Set<string>;
   filterQuery?: string;
   showWaterfall?: boolean;
   waterfallBarWidth?: number;
 }) {
-  // Memoize tree - will re-run whenever spans, expandedSpanIds, or filterQuery change
+  // Memoize tree - will re-run whenever spans, expandedSpanIds, expandedTraceIds, or filterQuery change
   const visibleNodes = createMemo(() =>
     buildHierarchicalSpanTree(
       props.spans,
       props.expandedSpanIds,
+      props.expandedTraceIds,
       props.filterQuery,
     ),
   );
@@ -380,6 +460,42 @@ export function SpanTreeView(props: {
       <box flexDirection="column" width="100%" padding={1}>
         <For each={visibleNodes()}>
           {(node) => {
+            // Handle trace group header nodes
+            if (node.isTraceGroup && node.traceInfo) {
+              const info = node.traceInfo;
+              const isSelected = () =>
+                props.selectedTraceId !== null &&
+                props.selectedTraceId === info.traceId;
+              const isExpanded = () =>
+                props.expandedTraceIds.has(info.traceId);
+
+              const headerContent = () => {
+                const selector = isSelected() ? "> " : "  ";
+                const expandIcon = isExpanded() ? "▼ " : "▶ ";
+                const errorIndicator = info.hasError ? " !" : "";
+                const duration = formatDurationMs(info.durationMs);
+                return `${selector}${expandIcon}${info.rootSpanName} (${info.spanCount} spans, ${duration})${errorIndicator}`;
+              };
+
+              const headerColor = () => {
+                if (isSelected()) return theme.bg;
+                if (info.hasError) return theme.error;
+                return theme.primary;
+              };
+
+              return (
+                <text
+                  id={`trace:${info.traceId}`}
+                  style={{
+                    fg: headerColor(),
+                    bg: isSelected() ? theme.primary : undefined,
+                  }}
+                >
+                  {headerContent()}
+                </text>
+              );
+            }
+
             // Handle regular span nodes
             if (!node.span) return null;
 
@@ -412,7 +528,6 @@ export function SpanTreeView(props: {
 
               if (props.showWaterfall && props.waterfallBarWidth) {
                 // With waterfall bar
-                // Use endTime to determine if span is still running (more reliable than status)
                 const isRunning = span.endTime === null;
                 const { startOffset, endOffset } = getWaterfallOffsets(
                   span,

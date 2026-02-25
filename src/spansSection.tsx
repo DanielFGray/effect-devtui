@@ -1,6 +1,6 @@
 /**
  * Spans Section Component
- * Displays span tree with filter and details panel
+ * Displays span tree with filter, stats summary, and details panel
  */
 
 import { Show, createMemo, createEffect, onMount } from "solid-js";
@@ -40,18 +40,20 @@ export function SpansSection() {
     }
   });
 
-  // Auto-scroll to keep selected span in view
+  // Auto-scroll to keep selected span or trace in view
   createEffect(() => {
     const selectedSpanId = store.ui.selectedSpanId;
-    if (!selectedSpanId || !spansScrollBoxRef) return;
+    const selectedTraceId = store.ui.selectedTraceId;
+    const targetId = selectedSpanId || (selectedTraceId ? `trace:${selectedTraceId}` : null);
+    if (!targetId || !spansScrollBoxRef) return;
 
     // The span tree is wrapped in a box, so we need to get the children of that box
     const scrollBoxChildren = spansScrollBoxRef.getChildren();
     if (scrollBoxChildren.length === 0) return;
 
-    // Get the actual span text elements (children of the first box)
+    // Get the actual span/trace text elements (children of the first box)
     const spanElements = scrollBoxChildren[0].getChildren();
-    const target = spanElements.find((child) => child.id === selectedSpanId);
+    const target = spanElements.find((child) => child.id === targetId);
     if (!target) return;
 
     // Calculate relative position
@@ -78,14 +80,68 @@ export function SpansSection() {
   const showWaterfall = createMemo(() => store.ui.spanViewMode === "waterfall");
 
   // Calculate bar width for waterfall view based on terminal width
-  // Span list takes 60% of terminal, minus padding and fixed columns:
-  // - selection indicator (2) + tree prefix (~16) + name (~16) + spacing (4) + duration (10) = ~48
   const waterfallBarWidth = createMemo(() => {
     if (!showWaterfall()) return 0;
     const termWidth = dimensions().width;
     const spansWidth = Math.floor(termWidth * 0.6) - 4; // 60% minus padding
     const available = spansWidth - 48;
     return Math.max(20, available);
+  });
+
+  // Aggregate span stats - computed via createMemo from store.spans
+  const spanStats = createMemo(() => {
+    const spans = store.spans;
+    if (spans.length === 0) {
+      return { spanCount: 0, traceCount: 0, errorCount: 0, errorPct: 0, avgMs: 0 };
+    }
+
+    const traceIds = new Set<string>();
+    let errorCount = 0;
+    let totalDurationMs = 0;
+    let durationCount = 0;
+
+    for (const span of spans) {
+      traceIds.add(span.traceId);
+
+      // Check for error attributes
+      const errAttr = span.attributes["error"] ?? span.attributes["error.message"];
+      if (errAttr !== undefined && errAttr !== null) {
+        errorCount++;
+      }
+
+      // Accumulate duration for average
+      if (span.endTime !== null) {
+        const durationMs = Number(span.endTime - span.startTime) / 1_000_000;
+        totalDurationMs += durationMs;
+        durationCount++;
+      }
+    }
+
+    const avgMs = durationCount > 0 ? totalDurationMs / durationCount : 0;
+    const errorPct = spans.length > 0 ? (errorCount / spans.length) * 100 : 0;
+
+    return {
+      spanCount: spans.length,
+      traceCount: traceIds.size,
+      errorCount,
+      errorPct,
+      avgMs,
+    };
+  });
+
+  // Format the stats summary line
+  const statsLine = createMemo(() => {
+    const stats = spanStats();
+    if (stats.spanCount === 0) return "";
+
+    const avgStr =
+      stats.avgMs < 1
+        ? `${(stats.avgMs * 1000).toFixed(0)}us`
+        : stats.avgMs < 1000
+          ? `${stats.avgMs.toFixed(1)}ms`
+          : `${(stats.avgMs / 1000).toFixed(2)}s`;
+
+    return `Spans: ${stats.spanCount} | Traces: ${stats.traceCount} | Errors: ${stats.errorCount} (${stats.errorPct.toFixed(1)}%) | Avg: ${avgStr}`;
   });
 
   return (
@@ -103,6 +159,17 @@ export function SpansSection() {
       >
         {`Spans (${spanCount()})${showWaterfall() ? " [Waterfall]" : ""} - Active: ${activeClientName()}`}
       </text>
+
+      {/* Stats summary bar */}
+      <Show when={spanStats().spanCount > 0}>
+        <text
+          height={1}
+          flexShrink={0}
+          style={{ fg: spanStats().errorCount > 0 ? theme.warning : theme.muted }}
+        >
+          {statsLine()}
+        </text>
+      </Show>
 
       {/* Span filter input (shown when typing) */}
       <Show when={store.ui.showSpanFilter}>
@@ -139,7 +206,9 @@ export function SpansSection() {
           <SpanTreeView
             spans={store.spans}
             selectedSpanId={store.ui.selectedSpanId}
+            selectedTraceId={store.ui.selectedTraceId}
             expandedSpanIds={store.ui.expandedSpanIds}
+            expandedTraceIds={store.ui.expandedTraceIds}
             filterQuery={store.ui.spanFilterQuery || undefined}
             showWaterfall={showWaterfall()}
             waterfallBarWidth={waterfallBarWidth()}
