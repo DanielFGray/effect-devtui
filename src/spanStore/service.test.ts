@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect"
 import * as Array from "effect/Array"
 import * as PubSub from "effect/PubSub"
 import * as Queue from "effect/Queue"
-import * as Fiber from "effect/Fiber"
 import * as Scope from "effect/Scope"
 import * as HashMap from "effect/HashMap"
 import * as Option from "effect/Option"
@@ -482,9 +481,19 @@ describe("SpanStore service", () => {
         }),
       )
 
-      // Check spans are in the state
-      expect(result.spansBySource).toBeDefined()
-      expect(result.metricsBySource).toBeDefined()
+      // Verify span "s1" exists under source 1
+      const spans = HashMap.get(result.spansBySource, source)
+      expect(Option.isSome(spans)).toBe(true)
+      if (Option.isSome(spans)) {
+        expect(spans.value).toHaveLength(1)
+      }
+
+      // Verify metric "m1" exists under source 1
+      const metrics = HashMap.get(result.metricsBySource, source)
+      expect(Option.isSome(metrics)).toBe(true)
+      if (Option.isSome(metrics)) {
+        expect(metrics.value).toHaveLength(1)
+      }
     })
   })
 })

@@ -79,6 +79,10 @@ export const SpanStoreLive: Layer.Layer<SpanStore> = Layer.effect(
     const ref = yield* Ref.make(empty)
     const pubsub = yield* PubSub.unbounded<StoreEvent>()
 
+    // Note: Ref.modify + publishAll is intentionally non-atomic. A concurrent
+    // mutation may modify the Ref between our modify and the publish. This is
+    // acceptable because events are informational/incremental and subscribers
+    // should tolerate eventual consistency (e.g. a slightly stale snapshot).
     const addSpan = (span: SimpleSpan, source: SourceKey): Effect.Effect<void> =>
       Effect.gen(function* () {
         const events = yield* Ref.modify(ref, (state) => {
