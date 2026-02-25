@@ -66,7 +66,6 @@ export const makeMcpLayer = (getStore: () => StoreState) => {
   // Combine everything: serve the router with MCP routes
   // SpanStore requirement bubbles up through the layer composition
   return HttpRouter.Default.unwrap(HttpServer.serve()).pipe(
-    HttpServer.withLogAddress,
     Layer.provide(McpLive),
     Layer.provide(HttpServerLive),
   );

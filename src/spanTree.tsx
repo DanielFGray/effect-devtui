@@ -448,7 +448,8 @@ export function SpanTreeView(props: {
               const DURATION_WIDTH = 10; // Fixed width for duration
 
               // Combine tree prefix and span name, then pad/truncate to fixed width
-              const treeName = prefix + span.name;
+              // Indent spans within their trace group
+              const treeName = "  " + prefix + span.name;
               const paddedTreeName =
                 treeName.length > TREE_NAME_WIDTH
                   ? treeName.slice(0, TREE_NAME_WIDTH - 1) + "…"
