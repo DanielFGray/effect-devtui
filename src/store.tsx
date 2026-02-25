@@ -259,13 +259,17 @@ export function StoreProvider(props: ParentProps) {
     },
 
     selectSpan: (spanId: string | null) => {
-      setStore("ui", "selectedSpanId", spanId);
-      setStore("ui", "selectedTraceId", null); // Clear trace selection
+      batch(() => {
+        setStore("ui", "selectedSpanId", spanId);
+        setStore("ui", "selectedTraceId", null); // Clear trace selection
+      });
     },
 
     selectTrace: (traceId: string | null) => {
-      setStore("ui", "selectedTraceId", traceId);
-      setStore("ui", "selectedSpanId", null); // Clear span selection
+      batch(() => {
+        setStore("ui", "selectedTraceId", traceId);
+        setStore("ui", "selectedSpanId", null); // Clear span selection
+      });
     },
 
     toggleSpanExpanded: (spanId: string) => {
