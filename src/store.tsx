@@ -24,6 +24,7 @@ import {
   cancelLayerAnalysis,
   clearSpanStoreSource,
 } from "./runtime";
+import { prepareSpanTree } from "./spanTreeUtils";
 
 // Re-export types from storeTypes
 export type {
@@ -129,62 +130,18 @@ export function StoreProvider(props: ParentProps) {
     | { type: "trace"; traceId: string }
     | { type: "span"; span: SimpleSpan };
 
-  // Helper to get visible items for navigation (with trace grouping)
+  // Helper to get visible items for navigation (with trace grouping).
+  // Uses shared prepareSpanTree utility to stay in sync with spanTree.tsx rendering.
   const getVisibleItems = (
     expandedSpanIds: Set<string>,
     expandedTraceIds: Set<string>,
   ): NavigableItem[] => {
     const result: NavigableItem[] = [];
-    const spans = store.spans;
-
-    // Deduplicate spans
-    const deduped = new Map<string, SimpleSpan>();
-    for (const span of spans) {
-      const existing = deduped.get(span.spanId);
-      if (!existing || span.status === "ended") {
-        deduped.set(span.spanId, span);
-      }
-    }
-    const uniqueSpans = Array.from(deduped.values());
-
-    // Apply filter if active
-    let filteredSpans = uniqueSpans;
-    if (store.ui.spanFilterQuery && store.ui.spanFilterQuery.trim()) {
-      const lowerQuery = store.ui.spanFilterQuery.toLowerCase();
-      filteredSpans = uniqueSpans.filter((span) =>
-        span.name.toLowerCase().includes(lowerQuery),
-      );
-    }
-
-    const spanMap = new Map(filteredSpans.map((s) => [s.spanId, s]));
+    const { traceGroups, childrenMap } = prepareSpanTree(
+      store.spans,
+      store.ui.spanFilterQuery,
+    );
     const visited = new Set<string>();
-
-    // Group spans by traceId
-    const traceGroups = new Map<string, SimpleSpan[]>();
-    for (const span of filteredSpans) {
-      const group = traceGroups.get(span.traceId) || [];
-      group.push(span);
-      traceGroups.set(span.traceId, group);
-    }
-
-    // Build children map for span DFS
-    const childrenMap = new Map<string, SimpleSpan[]>();
-    for (const span of filteredSpans) {
-      if (span.parent) {
-        const children = childrenMap.get(span.parent) || [];
-        children.push(span);
-        childrenMap.set(span.parent, children);
-      }
-    }
-
-    // Sort children by start time
-    for (const children of childrenMap.values()) {
-      children.sort((a, b) => {
-        if (a.startTime < b.startTime) return -1;
-        if (a.startTime > b.startTime) return 1;
-        return 0;
-      });
-    }
 
     // DFS to collect visible spans within a trace
     const visitSpan = (span: SimpleSpan) => {
@@ -201,38 +158,12 @@ export function StoreProvider(props: ParentProps) {
       }
     };
 
-    // Sort trace groups by earliest span start time
-    const traceEntries = Array.from(traceGroups.entries());
-    traceEntries.sort((a, b) => {
-      const aMin = a[1].reduce(
-        (min, s) => (s.startTime < min ? s.startTime : min),
-        a[1][0].startTime,
-      );
-      const bMin = b[1].reduce(
-        (min, s) => (s.startTime < min ? s.startTime : min),
-        b[1][0].startTime,
-      );
-      if (aMin < bMin) return -1;
-      if (aMin > bMin) return 1;
-      return 0;
-    });
-
     // Emit trace headers + their spans
-    for (const [traceId, traceSpans] of traceEntries) {
-      result.push({ type: "trace", traceId });
+    for (const group of traceGroups) {
+      result.push({ type: "trace", traceId: group.traceId });
 
-      if (expandedTraceIds.has(traceId)) {
-        // Get root spans within this trace
-        const rootSpans = traceSpans.filter(
-          (s) => s.parent === null || !spanMap.has(s.parent),
-        );
-        rootSpans.sort((a, b) => {
-          if (a.startTime < b.startTime) return -1;
-          if (a.startTime > b.startTime) return 1;
-          return 0;
-        });
-
-        for (const root of rootSpans) {
+      if (expandedTraceIds.has(group.traceId)) {
+        for (const root of group.rootSpans) {
           visitSpan(root);
         }
       }

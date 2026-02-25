@@ -5,6 +5,7 @@
 
 import { For, Show, createMemo } from "solid-js";
 import { theme } from "./theme";
+import { prepareSpanTree } from "./spanTreeUtils";
 
 import type { SimpleSpan } from "./store";
 
@@ -60,71 +61,8 @@ function buildHierarchicalSpanTree(
   filterQuery?: string,
 ): TreeNode[] {
   const result: TreeNode[] = [];
-
-  // Deduplicate spans - keep only the latest version of each spanId
-  // Prefer "ended" over "running" status
-  const deduped = new Map<string, SimpleSpan>();
-  for (const span of spans) {
-    const existing = deduped.get(span.spanId);
-    if (!existing || span.status === "ended") {
-      deduped.set(span.spanId, span);
-    }
-  }
-  let uniqueSpans = Array.from(deduped.values());
-
-  // Apply filter if provided
-  if (filterQuery && filterQuery.trim()) {
-    const lowerQuery = filterQuery.toLowerCase();
-    uniqueSpans = uniqueSpans.filter((span) =>
-      span.name.toLowerCase().includes(lowerQuery),
-    );
-  }
-
-  const spanMap = new Map(uniqueSpans.map((s) => [s.spanId, s]));
-  const visited = new Set<string>(); // Track visited spans to prevent duplicates
-
-  // Group spans by traceId
-  const traceGroups = new Map<string, SimpleSpan[]>();
-  for (const span of uniqueSpans) {
-    const group = traceGroups.get(span.traceId) || [];
-    group.push(span);
-    traceGroups.set(span.traceId, group);
-  }
-
-  // Sort trace groups by earliest span start time
-  const traceEntries = Array.from(traceGroups.entries());
-  traceEntries.sort((a, b) => {
-    const aMin = a[1].reduce(
-      (min, s) => (s.startTime < min ? s.startTime : min),
-      a[1][0].startTime,
-    );
-    const bMin = b[1].reduce(
-      (min, s) => (s.startTime < min ? s.startTime : min),
-      b[1][0].startTime,
-    );
-    if (aMin < bMin) return -1;
-    if (aMin > bMin) return 1;
-    return 0;
-  });
-
-  // Build children map for all spans (needed for DFS)
-  const childrenMap = new Map<string, SimpleSpan[]>();
-  for (const span of uniqueSpans) {
-    if (span.parent) {
-      const children = childrenMap.get(span.parent) || [];
-      children.push(span);
-      childrenMap.set(span.parent, children);
-    }
-  }
-
-  // Sort children by start time within each parent
-  for (const children of childrenMap.values()) {
-    children.sort((a, b) => {
-      if (a.startTime < b.startTime) return -1;
-      if (a.startTime > b.startTime) return 1;
-      return 0;
-    });
-  }
+  const { traceGroups, childrenMap } = prepareSpanTree(spans, filterQuery);
+  const visited = new Set<string>();
 
   // DFS to build visible span tree within a trace
   const visitSpan = (
@@ -163,30 +101,20 @@ function buildHierarchicalSpanTree(
   };
 
   // Emit each trace group
-  for (const [traceId, traceSpans] of traceEntries) {
-    // Find root span for this trace (span with no parent or parent not in span set)
-    const rootSpans = traceSpans.filter(
-      (s) => s.parent === null || !spanMap.has(s.parent),
-    );
-    rootSpans.sort((a, b) => {
-      if (a.startTime < b.startTime) return -1;
-      if (a.startTime > b.startTime) return 1;
-      return 0;
-    });
-
-    const primaryRoot = rootSpans.length > 0 ? rootSpans[0] : traceSpans[0];
+  for (const group of traceGroups) {
+    const primaryRoot = group.rootSpans[0];
 
     // Compute trace header info
     const rootDurationMs = getSpanDurationMs(primaryRoot);
-    const hasError = traceSpans.some((s) => {
+    const hasError = group.spans.some((s) => {
       const errAttr = s.attributes["error"] ?? s.attributes["error.message"];
       return errAttr !== undefined && errAttr !== null;
     });
 
     const traceInfo: TraceGroupInfo = {
-      traceId,
+      traceId: group.traceId,
       rootSpanName: primaryRoot.name,
-      spanCount: traceSpans.length,
+      spanCount: group.spans.length,
       durationMs: rootDurationMs,
       hasError,
     };
@@ -194,10 +122,10 @@ function buildHierarchicalSpanTree(
     // Emit trace header node
     result.push({
       span: null,
-      traceId,
+      traceId: group.traceId,
       traceInfo,
       depth: 0,
-      hasChildren: traceSpans.length > 0,
+      hasChildren: true,
       isLastChild: false,
       isTraceGroup: true,
       ancestorLines: [],
@@ -205,9 +133,9 @@ function buildHierarchicalSpanTree(
     });
 
     // If trace is expanded, emit its span tree
-    if (expandedTraceIds.has(traceId)) {
-      rootSpans.forEach((root, idx) => {
-        visitSpan(root, 0, idx === rootSpans.length - 1, [], root);
+    if (expandedTraceIds.has(group.traceId)) {
+      group.rootSpans.forEach((root, idx) => {
+        visitSpan(root, 0, idx === group.rootSpans.length - 1, [], root);
       });
     }
   }
