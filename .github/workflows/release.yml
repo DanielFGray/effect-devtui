@@ -50,7 +50,7 @@ jobs:
             ### Installation via npm
             ```bash
             npm install -g effect-devtui
-            effect-devtools
+            effect-devtui
             ```
 
             ### Or download binary directly
