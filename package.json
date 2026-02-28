@@ -25,7 +25,7 @@
     "bin"
   ],
   "bin": {
-    "effect-devtools": "./bin/effect-devtools"
+    "effect-devtui": "./bin/effect-devtui"
   },
   "scripts": {
     "dev": "bun --hot --conditions=browser src/index.tsx",

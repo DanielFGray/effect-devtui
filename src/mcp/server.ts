@@ -47,7 +47,7 @@ export const makeMcpLayer = (getStore: () => StoreState) => {
   const McpLive = Layer.mergeAll(
     // The MCP HTTP layer creates the server and registers routes on HttpRouter.Default
     McpServer.layerHttp({
-      name: "effect-devtools",
+      name: "effect-devtui",
       version: "1.0.0",
       path: MCP_PATH,
     }),
