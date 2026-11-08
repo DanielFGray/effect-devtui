@@ -1,11 +1,35 @@
 /**
  * Shared core module for Effect Layer analysis and resolution
  * Used by both CLI and TUI implementations
+ *
+ * TypeScript 7 runs the compiler in a separate process. The checker, program and
+ * type objects are proxies, so every call that reaches the compiler returns a
+ * Promise. Callers must close the session returned by openProject().
  */
 
-import ts from "typescript";
+import fs from "fs";
 import path from "path";
 import * as recast from "recast";
+import {
+  API,
+  ObjectFlags,
+  TypeFlags,
+  type Checker,
+  type Diagnostic,
+  type Program,
+  type Type,
+  type TypeReference,
+} from "typescript/unstable/async";
+import {
+  isCallExpression,
+  isIdentifier,
+  isPropertyAccessExpression,
+  isVariableDeclaration,
+  type Expression,
+  type Node,
+  type SourceFile,
+  type VariableDeclaration,
+} from "typescript/unstable/ast";
 
 const b = recast.types.builders;
 const n = recast.types.namedTypes;
@@ -36,102 +60,107 @@ export interface RunPromiseCall {
   column: number;
 }
 
-/**
- * Compile the project and extract TypeScript diagnostics
- */
-export function getDiagnostics(configPath: string): readonly ts.Diagnostic[] {
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (configFile.error) {
-    return [];
-  }
-
-  const basePath = path.dirname(configPath);
-  const parsedConfig = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    basePath,
-  );
-
-  const program = ts.createProgram({
-    rootNames: parsedConfig.fileNames,
-    options: parsedConfig.options,
-  });
-
-  return ts.getPreEmitDiagnostics(program);
+/** A TypeScript project opened through the compiler API. */
+export interface ProjectSession {
+  readonly program: Program;
+  readonly checker: Checker;
+  /** Stops the compiler process. Required, or the process outlives the analysis. */
+  readonly close: () => Promise<void>;
 }
 
 /**
- * Create a TypeScript program from tsconfig
- * Useful when you need both diagnostics and program for layer scanning
+ * Locates the native compiler copied next to a compiled release binary.
+ *
+ * A Bun-compiled executable cannot find the TypeScript platform package in
+ * node_modules, so the release build ships `tsc` beside the executable. In
+ * development this returns undefined and the API resolves the package itself.
  */
-export function createProgram(configPath: string): ts.Program | null {
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (configFile.error) {
-    return null;
+const shippedCompilerPath = (): string | undefined => {
+  const name = process.platform === "win32" ? "tsc.exe" : "tsc";
+  const candidate = path.join(path.dirname(process.execPath), "lib", name);
+  return fs.existsSync(candidate) ? candidate : undefined;
+};
+
+/**
+ * Open the project described by a tsconfig.json.
+ * Returns null when the compiler finds no project for the file.
+ */
+export async function openProject(
+  configPath: string,
+): Promise<ProjectSession | null> {
+  const api = new API({ tsserverPath: shippedCompilerPath() });
+  try {
+    const snapshot = await api.updateSnapshot({ openProjects: [configPath] });
+    const project = (await snapshot.getProjects())[0];
+    if (!project) {
+      await api.close();
+      return null;
+    }
+    return {
+      program: project.program,
+      checker: project.checker,
+      close: () => api.close(),
+    };
+  } catch (error) {
+    await api.close();
+    throw error;
   }
-
-  const basePath = path.dirname(configPath);
-  const parsedConfig = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    basePath,
-  );
-
-  return ts.createProgram({
-    rootNames: parsedConfig.fileNames,
-    options: parsedConfig.options,
-  });
 }
 
 /**
- * Parse TypeScript diagnostics to find Effect requirement mismatches
- * Improved approach: Still parses diagnostic messages but more robustly
- *
- * Note: This still uses regex on diagnostic messages because:
- * 1. Diagnostics are error messages (strings), not AST nodes
- * 2. The TypeScript Compiler has already done the type checking
- * 3. Alternative would be to re-implement Effect's type checking logic
- *
- * Future improvement: Could use program + checker to inspect the actual
- * Effect call sites and extract requirements programmatically before errors occur
+ * Compile the project and collect every diagnostic the program reports
  */
-export function findMissingRequirements(
-  diagnostics: readonly ts.Diagnostic[],
-): MissingRequirement[] {
+export async function getDiagnostics(program: Program): Promise<Diagnostic[]> {
+  return [
+    ...(await program.getConfigFileParsingDiagnostics()),
+    ...(await program.getProgramDiagnostics()),
+    ...(await program.getGlobalDiagnostics()),
+    ...(await program.getSyntacticDiagnostics()),
+    ...(await program.getSemanticDiagnostics()),
+  ];
+}
+
+// Matches: Effect<..., ..., ServiceA | ServiceB> is not assignable to Effect<..., ..., never>
+const EFFECT_REQUIREMENT_PATTERN =
+  /Effect<[^>]*,\s*[^>]*,\s*([^>]+)>'?\s+is not assignable.*Effect<[^>]*,\s*[^>]*,\s*never>/;
+
+/**
+ * Parse TypeScript diagnostics to find Effect requirement mismatches.
+ *
+ * Still parses diagnostic messages: the compiler has already done the type
+ * checking, and re-implementing Effect's requirement inference is out of scope.
+ * Union member order follows the compiler, so callers must not depend on it.
+ */
+export async function findMissingRequirements(
+  program: Program,
+  diagnostics: readonly Diagnostic[],
+): Promise<MissingRequirement[]> {
   const results: MissingRequirement[] = [];
 
   for (const diag of diagnostics) {
     if (diag.code !== 2345) continue; // TS2345: Argument not assignable
+    if (!diag.fileName) continue;
 
-    const messageText = ts.flattenDiagnosticMessageText(diag.messageText, "\n");
+    const match = diag.text.match(EFFECT_REQUIREMENT_PATTERN);
+    if (!match) continue;
 
-    // Look for Effect requirement mismatch pattern
-    // Matches: Effect<..., ..., ServiceA | ServiceB> is not assignable to Effect<..., ..., never>
-    const effectPattern =
-      /Effect<[^>]*,\s*[^>]*,\s*([^>]+)>'?\s+is not assignable.*Effect<[^>]*,\s*[^>]*,\s*never>/;
-    const match = messageText.match(effectPattern);
+    const services = match[1]
+      .split("|")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
 
-    if (match) {
-      const servicesStr = match[1];
-      // More robust parsing: handle whitespace and complex type names
-      const services = servicesStr
-        .split("|")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-
-      if (diag.file) {
-        const { line, character } = diag.file.getLineAndCharacterOfPosition(
-          diag.start || 0,
-        );
-        results.push({
-          file: diag.file.fileName,
-          line: line + 1,
-          column: character + 1,
-          missingServices: services,
-          fullError: messageText,
-        });
-      }
-    }
+    const sourceFile = await program.getSourceFile(diag.fileName);
+    if (!sourceFile) continue;
+    const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+      diag.pos,
+    );
+    results.push({
+      file: diag.fileName,
+      line: line + 1,
+      column: character + 1,
+      missingServices: services,
+      fullError: diag.text,
+    });
   }
 
   return results;
@@ -140,74 +169,79 @@ export function findMissingRequirements(
 /**
  * Scan source files for Layer definitions
  * Finds variables like: const DatabaseLive = Layer.succeed(DatabaseService, ...)
- * Uses TypeScript Compiler API to directly inspect type structure instead of string parsing
+ * Uses the compiler's checker to read each declaration's Layer<Out, Err, In> type arguments
  */
-export function findLayerDefinitions(program: ts.Program): LayerDefinition[] {
+export async function findLayerDefinitions(
+  program: Program,
+  checker: Checker,
+): Promise<LayerDefinition[]> {
   const layers: LayerDefinition[] = [];
-  const checker = program.getTypeChecker();
 
-  for (const sourceFile of program.getSourceFiles()) {
-    if (sourceFile.isDeclarationFile) continue;
-    if (sourceFile.fileName.includes("node_modules")) continue;
+  for (const fileName of await program.getSourceFileNames()) {
+    if (fileName.includes("node_modules")) continue;
+    const sourceFile = await program.getSourceFile(fileName);
+    if (!sourceFile || sourceFile.isDeclarationFile) continue;
 
-    ts.forEachChild(sourceFile, function visit(node) {
-      if (ts.isVariableDeclaration(node) && node.initializer) {
-        const name = node.name.getText(sourceFile);
-        const type = checker.getTypeAtLocation(node);
+    for (const node of collectVariableDeclarations(sourceFile)) {
+      if (!node.initializer) continue;
 
-        // Check if this is a Layer type by examining the type alias
-        if (isLayerType(type)) {
-          const { line } = sourceFile.getLineAndCharacterOfPosition(
-            node.getStart(),
-          );
+      const type = await checker.getTypeAtLocation(node);
+      if (!type || !(await isLayerType(type))) continue;
 
-          // Extract generic type arguments: Layer<Out, Err, In>
-          const typeArgs = getTypeArguments(type);
+      const name = node.name.getText(sourceFile);
+      const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart());
 
-          const provides = typeArgs[0]
-            ? checker.typeToString(typeArgs[0])
-            : null;
-          const requires = typeArgs[2]
-            ? extractUnionMembers(typeArgs[2], checker)
-            : [];
+      const typeArgs = await getTypeArguments(type, checker);
+      const provides = typeArgs[0] ? await checker.typeToString(typeArgs[0]) : null;
+      const requires = typeArgs[2] ? await extractUnionMembers(typeArgs[2], checker) : [];
 
-          // Extract composition information (for merged/provided layers)
-          const { composedOf, compositionType } = extractCompositionInfo(
-            node.initializer,
-            sourceFile,
-          );
+      // Extract composition information (for merged/provided layers)
+      const { composedOf, compositionType } = extractCompositionInfo(
+        node.initializer,
+        sourceFile,
+      );
 
-          layers.push({
-            name,
-            file: sourceFile.fileName,
-            line: line + 1,
-            provides,
-            requires,
-            composedOf,
-            compositionType,
-          });
-        }
-      }
-
-      ts.forEachChild(node, visit);
-    });
+      layers.push({
+        name,
+        file: sourceFile.fileName,
+        line: line + 1,
+        provides,
+        requires,
+        composedOf,
+        compositionType,
+      });
+    }
   }
 
   return layers;
 }
 
 /**
+ * Every variable declaration in a file, in source order. Collected synchronously
+ * because the AST walk cannot await the checker calls made for each declaration.
+ */
+function collectVariableDeclarations(root: SourceFile): VariableDeclaration[] {
+  const found: VariableDeclaration[] = [];
+  const visit = (node: Node): void => {
+    if (isVariableDeclaration(node)) found.push(node);
+    node.forEachChild(visit);
+  };
+  root.forEachChild(visit);
+  return found;
+}
+
+/**
  * Check if a type is a Layer type (Layer.Layer<...> or Layer<...>)
  */
-function isLayerType(type: ts.Type): boolean {
-  // Check if type has an alias symbol named "Layer"
-  if (type.aliasSymbol) {
-    return type.aliasSymbol.name === "Layer";
+async function isLayerType(type: Type): Promise<boolean> {
+  // Type aliases carry their own symbol; interfaces such as Effect v4's Layer do not
+  const aliasSymbol = await type.getAliasSymbol();
+  if (aliasSymbol) {
+    return aliasSymbol.name === "Layer";
   }
 
-  // Fallback to string check for edge cases
-  const typeString = type.getSymbol()?.getName() || "";
-  return typeString === "Layer";
+  const symbol = await type.getSymbol();
+  return (symbol?.name ?? "") === "Layer";
 }
 
 /**
@@ -219,8 +253,8 @@ function isLayerType(type: ts.Type): boolean {
  * - Layer.provideMerge(A, B)
  */
 function extractCompositionInfo(
-  initializer: ts.Expression,
-  sourceFile: ts.SourceFile,
+  initializer: Expression,
+  sourceFile: SourceFile,
 ): {
   composedOf: string[];
   compositionType: LayerDefinition["compositionType"];
@@ -229,11 +263,11 @@ function extractCompositionInfo(
   let compositionType: LayerDefinition["compositionType"] = "none";
 
   // Helper to extract identifier name from an expression
-  const getExpressionName = (expr: ts.Expression): string | null => {
-    if (ts.isIdentifier(expr)) {
+  const getExpressionName = (expr: Expression): string | null => {
+    if (isIdentifier(expr)) {
       return expr.text;
     }
-    if (ts.isPropertyAccessExpression(expr)) {
+    if (isPropertyAccessExpression(expr)) {
       // Handle cases like Module.LayerName
       return expr.getText(sourceFile);
     }
@@ -241,11 +275,11 @@ function extractCompositionInfo(
   };
 
   // Helper to check if a call is a Layer.X method
-  const getLayerMethodName = (expr: ts.Expression): string | null => {
-    if (ts.isPropertyAccessExpression(expr)) {
+  const getLayerMethodName = (expr: Expression): string | null => {
+    if (isPropertyAccessExpression(expr)) {
       const obj = expr.expression;
       const method = expr.name.text;
-      if (ts.isIdentifier(obj) && obj.text === "Layer") {
+      if (isIdentifier(obj) && obj.text === "Layer") {
         return method;
       }
     }
@@ -253,7 +287,7 @@ function extractCompositionInfo(
   };
 
   // Check for direct Layer.mergeAll/merge/provide calls
-  if (ts.isCallExpression(initializer)) {
+  if (isCallExpression(initializer)) {
     const methodName = getLayerMethodName(initializer.expression);
 
     if (methodName === "mergeAll" || methodName === "merge") {
@@ -273,16 +307,16 @@ function extractCompositionInfo(
   }
 
   // Check for pipe pattern: A.pipe(Layer.provide(B))
-  if (ts.isCallExpression(initializer)) {
+  if (isCallExpression(initializer)) {
     const expr = initializer.expression;
-    if (ts.isPropertyAccessExpression(expr) && expr.name.text === "pipe") {
+    if (isPropertyAccessExpression(expr) && expr.name.text === "pipe") {
       // Get the subject of the pipe (A in A.pipe(...))
       const subject = expr.expression;
       const subjectName = getExpressionName(subject);
 
       // Look through pipe arguments for Layer.provide/provideMerge calls
       for (const arg of initializer.arguments) {
-        if (ts.isCallExpression(arg)) {
+        if (isCallExpression(arg)) {
           const pipeMethodName = getLayerMethodName(arg.expression);
           if (
             pipeMethodName === "provide" ||
@@ -305,20 +339,18 @@ function extractCompositionInfo(
 }
 
 /**
- * Extract type arguments from a generic type
+ * Type arguments of a generic type. Aliases such as `type Layer<A, B, C>` expose
+ * their arguments through the alias; interface instantiations such as Effect v4's
+ * `Layer<A, B, C>` are type references.
  */
-function getTypeArguments(type: ts.Type): ts.Type[] {
-  // For type aliases like Layer<A, B, C>, aliasTypeArguments contains [A, B, C]
-  if (type.aliasTypeArguments) {
-    return type.aliasTypeArguments as ts.Type[];
+async function getTypeArguments(type: Type, checker: Checker): Promise<readonly Type[]> {
+  const aliasArgs = await type.getAliasTypeArguments();
+  if (aliasArgs.length > 0) {
+    return aliasArgs;
   }
-
-  // For direct references, check if type is a TypeReference
-  const typeRef = type as ts.TypeReference;
-  if (typeRef.typeArguments) {
-    return typeRef.typeArguments as ts.Type[];
+  if (type.isObjectType() && type.objectFlags & ObjectFlags.Reference) {
+    return checker.getTypeArguments(type as TypeReference);
   }
-
   return [];
 }
 
@@ -326,35 +358,36 @@ function getTypeArguments(type: ts.Type): ts.Type[] {
  * Extract members from a union type (A | B | C => ["A", "B", "C"])
  * Returns empty array for "never" type, single element for non-union types
  */
-function extractUnionMembers(type: ts.Type, checker: ts.TypeChecker): string[] {
+async function extractUnionMembers(type: Type, checker: Checker): Promise<string[]> {
   // Check if it's the "never" type
-  if (type.flags & ts.TypeFlags.Never) {
+  if (type.flags & TypeFlags.Never) {
     return [];
   }
 
   // Check if it's a union type (A | B | C)
-  if (type.flags & ts.TypeFlags.Union) {
-    const unionType = type as ts.UnionType;
-    return unionType.types.map((t) => checker.typeToString(t));
+  if (type.isUnionType()) {
+    const members = await type.getTypes();
+    return Promise.all(members.map((t) => checker.typeToString(t)));
   }
 
   // Single type, not a union
-  return [checker.typeToString(type)];
+  return [await checker.typeToString(type)];
 }
 
 /**
  * Find all Effect.runPromise/runFork/runSync calls in the codebase
  * Used to identify where to insert layer composition code
  */
-export function findRunPromiseCalls(program: ts.Program): RunPromiseCall[] {
+export async function findRunPromiseCalls(program: Program): Promise<RunPromiseCall[]> {
   const calls: RunPromiseCall[] = [];
 
-  for (const sourceFile of program.getSourceFiles()) {
-    if (sourceFile.isDeclarationFile) continue;
-    if (sourceFile.fileName.includes("node_modules")) continue;
+  for (const fileName of await program.getSourceFileNames()) {
+    if (fileName.includes("node_modules")) continue;
+    const sourceFile = await program.getSourceFile(fileName);
+    if (!sourceFile || sourceFile.isDeclarationFile) continue;
 
-    ts.forEachChild(sourceFile, function visit(node) {
-      if (ts.isCallExpression(node)) {
+    const visit = (node: Node): void => {
+      if (isCallExpression(node)) {
         const text = node.expression.getText(sourceFile);
         if (
           text.includes("Effect.runPromise") ||
@@ -371,9 +404,9 @@ export function findRunPromiseCalls(program: ts.Program): RunPromiseCall[] {
           });
         }
       }
-
-      ts.forEachChild(node, visit);
-    });
+      node.forEachChild(visit);
+    };
+    sourceFile.forEachChild(visit);
   }
 
   return calls;

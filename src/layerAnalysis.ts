@@ -7,10 +7,11 @@ import * as fs from "fs/promises";
 import { StoreActionsService } from "./storeActionsService";
 import { applyLayerFix, type LayerFix } from "./codemod";
 import {
+  openProject,
   getDiagnostics,
   findMissingRequirements,
-  createProgram,
   findLayerDefinitions,
+  type ProjectSession,
   buildLayerIndex,
   resolveTransitiveDependencies,
   generateLayerCode,
@@ -91,16 +92,18 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
 
     console.log(`Running layer analysis on ${tsconfigPath}`);
 
-    // Create TypeScript program (part of getting diagnostics)
-    const program = yield* Effect.try({
-      try: () => createProgram(tsconfigPath),
-      catch: (error) =>
-        new Error(`Failed to create TypeScript program: ${error}`),
-    });
+    // One compiler process serves diagnostics and layer discovery; it stops when the scope closes
+    const session = yield* Effect.acquireRelease(
+      Effect.tryPromise({
+        try: () => openProject(tsconfigPath),
+        catch: (error) => new Error(`Failed to open TypeScript project: ${error}`),
+      }),
+      (opened) => (opened ? Effect.promise(() => opened.close()) : Effect.void),
+    );
 
-    if (!program) {
+    if (!session) {
       yield* actions.setLayerAnalysisError(
-        "Failed to create TypeScript program",
+        `No TypeScript project found for ${tsconfigPath}`,
       );
       yield* actions.setLayerAnalysisStatus("error");
       yield* actions.setLayerAnalysisProgress(null);
@@ -109,23 +112,23 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
 
     // Step 3: Get diagnostics
     yield* setProgress("getting_diagnostics");
-    const diagnostics = yield* Effect.try({
-      try: () => getDiagnostics(tsconfigPath),
+    const diagnostics = yield* Effect.tryPromise({
+      try: () => getDiagnostics(session.program),
       catch: (error) => new Error(`Failed to get diagnostics: ${error}`),
     });
 
     // Step 4: Find missing requirements
     yield* setProgress("finding_requirements");
-    const missingReqs = yield* Effect.try({
-      try: () => findMissingRequirements(diagnostics),
+    const missingReqs = yield* Effect.tryPromise({
+      try: () => findMissingRequirements(session.program, diagnostics),
       catch: (error) =>
         new Error(`Failed to find missing requirements: ${error}`),
     });
 
     // Step 5: Find layer definitions (always do this, even if no missing requirements)
     yield* setProgress("finding_layers");
-    const layers = yield* Effect.try({
-      try: () => findLayerDefinitions(program),
+    const layers = yield* Effect.tryPromise({
+      try: () => findLayerDefinitions(session.program, session.checker),
       catch: (error) => new Error(`Failed to find layer definitions: ${error}`),
     });
 
@@ -221,6 +224,8 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
       targetLine,
     });
   }).pipe(
+    // Closes the compiler session acquired above
+    Effect.scoped,
     Effect.catch((error) =>
       Effect.gen(function* () {
         const actions = yield* StoreActionsService;

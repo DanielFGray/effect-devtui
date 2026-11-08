@@ -19,7 +19,8 @@ import fs from "fs";
 import {
   type MissingRequirement,
   type LayerDefinition,
-  createProgram,
+  openProject,
+  type ProjectSession,
   getDiagnostics,
   findMissingRequirements,
   findLayerDefinitions,
@@ -142,10 +143,18 @@ async function main() {
     console.error(`Working directory: ${process.cwd()}\n`);
   }
 
+  let session: ProjectSession | null = null;
   try {
-    // Get diagnostics
-    const diagnostics = getDiagnostics(resolvedPath);
-    const missingReqs = findMissingRequirements(diagnostics);
+    session = await openProject(resolvedPath);
+    if (!session) {
+      throw new Error("Failed to create TypeScript program");
+    }
+
+    const diagnostics = await getDiagnostics(session.program);
+    const missingReqs = await findMissingRequirements(
+      session.program,
+      diagnostics,
+    );
 
     if (missingReqs.length === 0) {
       if (jsonMode) {
@@ -174,13 +183,7 @@ async function main() {
       return;
     }
 
-    // Find layer definitions
-    const program = createProgram(resolvedPath);
-    if (!program) {
-      throw new Error("Failed to create TypeScript program");
-    }
-
-    const layers = findLayerDefinitions(program);
+    const layers = await findLayerDefinitions(session.program, session.checker);
     const layerIndex = buildLayerIndex(layers);
 
     const allMissing = Array.from(
@@ -270,6 +273,8 @@ async function main() {
       console.error("Error:", error);
       process.exit(1);
     }
+  } finally {
+    await session?.close();
   }
 }
 

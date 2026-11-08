@@ -6,9 +6,10 @@
 import {
   type MissingRequirement,
   type LayerDefinition,
+  openProject,
+  type ProjectSession,
   getDiagnostics,
   findMissingRequirements,
-  createProgram,
   findLayerDefinitions,
   buildLayerIndex,
   resolveTransitiveDependencies,
@@ -54,15 +55,23 @@ interface AnalysisResultMessage {
   targetLine: number | null;
 }
 
-self.onmessage = (event: MessageEvent<AnalysisRequest>) => {
+self.onmessage = async (event: MessageEvent<AnalysisRequest>) => {
   const { tsconfigPath } = event.data;
+  let session: ProjectSession | null = null;
 
   try {
     console.log(`[LayerResolverWorker] Starting analysis on ${tsconfigPath}`);
 
-    // Get diagnostics
-    const diagnostics = getDiagnostics(tsconfigPath);
-    const missingReqs = findMissingRequirements(diagnostics);
+    session = await openProject(tsconfigPath);
+    if (!session) {
+      throw new Error("Failed to create TypeScript program");
+    }
+
+    const diagnostics = await getDiagnostics(session.program);
+    const missingReqs = await findMissingRequirements(
+      session.program,
+      diagnostics,
+    );
 
     if (missingReqs.length === 0) {
       const result: AnalysisResultMessage = {
@@ -82,13 +91,7 @@ self.onmessage = (event: MessageEvent<AnalysisRequest>) => {
       return;
     }
 
-    // Find layer definitions
-    const program = createProgram(tsconfigPath);
-    if (!program) {
-      throw new Error("Failed to create TypeScript program");
-    }
-
-    const layers = findLayerDefinitions(program);
+    const layers = await findLayerDefinitions(session.program, session.checker);
     const layerIndex = buildLayerIndex(layers);
 
     const allMissing = Array.from(
@@ -165,5 +168,7 @@ self.onmessage = (event: MessageEvent<AnalysisRequest>) => {
     };
     console.error(`[LayerResolverWorker] Error:`, error);
     self.postMessage(result);
+  } finally {
+    await session?.close();
   }
 };

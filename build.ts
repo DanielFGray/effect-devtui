@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import solidPlugin from "@opentui/solid/bun-plugin"
+import { cp } from "fs/promises"
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -60,7 +61,8 @@ await Bun.$`rm -rf dist`
 const skipInstall = process.argv.includes("--skip-install")
 if (!skipInstall) {
   console.log("Installing platform-specific native modules...")
-  await Bun.$`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
+  // typescript pulls in one native compiler package per platform as an optional dependency
+  await Bun.$`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]} typescript@${pkg.devDependencies.typescript}`
 }
 
 for (const item of targets) {
@@ -103,6 +105,15 @@ for (const item of targets) {
       VERSION: `'${pkg.version}'`,
     },
   })
+
+  // The compiled binary cannot find the native TypeScript compiler through node_modules,
+  // so the release ships the compiler's lib/ directory (lib/tsc plus default libs) beside it.
+  // Keep in sync with shippedCompilerPath in src/layerResolverCore.ts.
+  await cp(
+    `node_modules/@typescript/typescript-${item.os}-${item.arch}/lib`,
+    `dist/${name}/lib`,
+    { recursive: true },
+  )
 
   await Bun.file(`dist/${name}/package.json`).write(
     JSON.stringify(
