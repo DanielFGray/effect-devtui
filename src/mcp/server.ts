@@ -1,14 +1,15 @@
 /**
  * MCP Server Integration
  *
- * This module creates the MCP server layer using @effect/ai's McpServer.
+ * This module creates the MCP server layer using effect/ai McpServer.
  * It registers the DevTools toolkit and provides the StoreReader dependency.
  * The SpanStore dependency must be provided by the caller (from the main
  * program's layer context) so the MCP tools share the same span data.
  */
 
-import * as McpServer from "@effect/ai/McpServer";
-import { HttpRouter, HttpServer } from "@effect/platform";
+import * as McpProtocol from "effect/ai/McpProtocol";
+import * as McpServer from "effect/ai/McpServer";
+import * as HttpRouter from "effect/http/HttpRouter";
 import { BunHttpServer } from "@effect/platform-bun";
 import * as Layer from "effect/Layer";
 import * as Effect from "effect/Effect";
@@ -38,36 +39,27 @@ export const MCP_PATH = "/mcp";
  * @param getStore - Function to get the current store state (for StoreReader)
  */
 export const makeMcpLayer = (getStore: () => StoreState) => {
-  // Create MCP toolkit layer that registers tools with the server
-  const ToolkitLayer = McpServer.toolkit(DevToolsToolkit);
-
-  // MCP layer with toolkit registration
-  // DevToolsToolkitHandlers depends on SpanStore | StoreReader.
-  // We provide StoreReader here; SpanStore must come from outside.
-  const McpLive = Layer.mergeAll(
-    // The MCP HTTP layer creates the server and registers routes on HttpRouter.Default
-    McpServer.layerHttp({
-      name: "effect-devtui",
-      version: "1.0.0",
-      path: MCP_PATH,
-    }),
-    // Register our toolkit with the server
-    ToolkitLayer,
-  ).pipe(
+  // Registration layer: builds the DevTools tools on the McpServer.
+  // DevToolsToolkitHandlers requires SpanStore, which stays a requirement of the layer.
+  const ToolkitRegistration = McpServer.toolkit(DevToolsToolkit).pipe(
     // Provide the handlers for our toolkit
     Layer.provide(DevToolsToolkitHandlers),
     // Provide the store reader so handlers can access client state
     Layer.provide(makeStoreReaderLayer(getStore)),
   );
 
-  // HTTP server layer using Bun
-  const HttpServerLive = BunHttpServer.layer({ port: MCP_PORT });
+  // Streamable HTTP endpoint, registered on the unified HttpRouter
+  const McpLive = McpServer.layerHttp({
+    name: "effect-devtui",
+    version: "1.0.0",
+    path: MCP_PATH,
+    protocols: [McpProtocol.v2025_06_18],
+    registrations: ToolkitRegistration,
+  });
 
-  // Combine everything: serve the router with MCP routes
-  // SpanStore requirement bubbles up through the layer composition
-  return HttpRouter.Default.unwrap(HttpServer.serve()).pipe(
-    Layer.provide(McpLive),
-    Layer.provide(HttpServerLive),
+  // Serve the router on its own HTTP port using Bun
+  return HttpRouter.serve(McpLive).pipe(
+    Layer.provide(BunHttpServer.layer({ port: MCP_PORT })),
   );
 };
 

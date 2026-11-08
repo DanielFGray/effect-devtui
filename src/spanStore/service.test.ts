@@ -92,7 +92,7 @@ describe("SpanStore service", () => {
 
           yield* store.addSpan(makeSpan(), source)
 
-          const event = yield* Queue.take(sub)
+          const event = yield* PubSub.take(sub)
           return event
         }),
       )
@@ -138,8 +138,8 @@ describe("SpanStore service", () => {
           )
 
           // Take the two events published by this single addSpan (SpanAdded + SpansRotated)
-          const event1 = yield* Queue.take(sub)
-          const event2 = yield* Queue.take(sub)
+          const event1 = yield* PubSub.take(sub)
+          const event2 = yield* PubSub.take(sub)
 
           return [event1, event2]
         }),
@@ -165,7 +165,7 @@ describe("SpanStore service", () => {
           const sub = yield* PubSub.subscribe(store.events)
           yield* store.addSpanEvent(makeEvent(), "span-1", source)
 
-          return yield* Queue.take(sub)
+          return yield* PubSub.take(sub)
         }),
       )
 
@@ -210,7 +210,7 @@ describe("SpanStore service", () => {
 
           yield* store.updateMetrics([makeMetric()], source)
 
-          return yield* Queue.take(sub)
+          return yield* PubSub.take(sub)
         }),
       )
 
@@ -450,7 +450,7 @@ describe("SpanStore service", () => {
           // Drain all events - take exactly count events
           const collected: Array<StoreEvent> = []
           for (let i = 0; i < count; i++) {
-            const event = yield* Queue.take(sub)
+            const event = yield* PubSub.take(sub)
             collected.push(event)
           }
 

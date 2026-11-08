@@ -1,18 +1,19 @@
-import * as Domain from "@effect/experimental/DevTools/Domain";
-import * as Server from "@effect/experimental/DevTools/Server";
+import * as Domain from "effect/devtools/DevToolsSchema";
+import * as Server from "effect/devtools/DevToolsServer";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
-import * as SocketServer from "@effect/platform/SocketServer";
+import * as SocketServer from "effect/socket/SocketServer";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as HashSet from "effect/HashSet";
 import * as Option from "effect/Option";
 import * as Hash from "effect/Hash";
 import * as Equal from "effect/Equal";
-import type { Dequeue } from "effect/Queue";
-import type { Scope } from "effect/Scope";
+import type * as Scope from "effect/Scope";
 
 /**
  * Represents a connected Effect DevTools client
@@ -21,14 +22,14 @@ export interface Client extends Equal.Equal {
   readonly id: number;
   readonly name: string;
   readonly spans: Effect.Effect<
-    Dequeue<Domain.Span | Domain.SpanEvent>,
+    PubSub.Subscription<Domain.Span | Domain.SpanEvent>,
     never,
-    Scope
+    Scope.Scope
   >;
   readonly metrics: Effect.Effect<
-    Dequeue<Domain.MetricsSnapshot>,
+    PubSub.Subscription<Domain.MetricsSnapshot>,
     never,
-    Scope
+    Scope.Scope
   >;
   readonly requestMetrics: Effect.Effect<void>;
 }
@@ -36,7 +37,7 @@ export interface Client extends Equal.Equal {
 /**
  * Server context holding all clients and server state
  */
-export class ServerContext extends Effect.Tag("effect-tui/ServerContext")<
+export class ServerContext extends Context.Service<
   ServerContext,
   {
     readonly clients: SubscriptionRef.SubscriptionRef<HashSet.HashSet<Client>>;
@@ -45,20 +46,17 @@ export class ServerContext extends Effect.Tag("effect-tui/ServerContext")<
     >;
     readonly clientId: Ref.Ref<number>;
   }
->() {
-  static readonly Live = Layer.scoped(
-    ServerContext,
-    Effect.gen(function* () {
-      const clients = yield* SubscriptionRef.make(HashSet.empty<Client>());
-      const activeClient = yield* SubscriptionRef.make(Option.none<Client>());
-      const clientId = yield* Ref.make(1);
-      return ServerContext.of({
-        clients,
-        activeClient,
-        clientId,
-      });
-    }),
-  );
+>()("effect-tui/ServerContext") {
+  static readonly Live = Layer.effect(ServerContext, Effect.gen(function* () {
+    const clients = yield* SubscriptionRef.make(HashSet.empty<Client>());
+    const activeClient = yield* SubscriptionRef.make(Option.none<Client>());
+    const clientId = yield* Ref.make(1);
+    return ServerContext.of({
+      clients,
+      activeClient,
+      clientId,
+    });
+  }));
 }
 
 /**
@@ -88,7 +86,7 @@ const makeClient = (serverClient: Server.Client, name?: string) =>
       name: name ?? `Client #${id}`,
       spans: PubSub.subscribe(spans),
       metrics: PubSub.subscribe(metrics),
-      requestMetrics: serverClient.request({ _tag: "MetricsRequest" }),
+      requestMetrics: serverClient.send({ _tag: "MetricsRequest" }),
       [Equal.symbol](that: Client) {
         return id === that.id;
       },
@@ -112,23 +110,23 @@ const makeClient = (serverClient: Server.Client, name?: string) =>
         ),
     );
 
-    yield* serverClient.queue.take.pipe(
+    yield* Queue.take(serverClient.queue).pipe(
       Effect.flatMap((res) => {
         if (res._tag !== "MetricsSnapshot") {
           console.log(`[Server] Received from client: ${res._tag}`);
         }
         switch (res._tag) {
           case "MetricsSnapshot": {
-            return metrics.offer(res);
+            return PubSub.publish(metrics, res);
           }
           case "SpanEvent":
           case "Span": {
-            return spans.offer(res);
+            return PubSub.publish(spans, res);
           }
         }
       }),
       Effect.forever,
-      Effect.fork,
+      Effect.forkChild,
     );
   }).pipe(Effect.awaitAllChildren, Effect.scoped);
 
@@ -141,11 +139,9 @@ export const runServer = (port: number) =>
 
     console.log("[Server] Starting DevTools server...");
 
-    const run = Server.run((...args) => {
-      console.log(
-        `[Server] Server.run callback invoked with ${args.length} args`,
-      );
-      return makeClient(...args);
+    const run = Server.run((client) => {
+      console.log("[Server] Server.run callback invoked");
+      return makeClient(client);
     }).pipe(
       Effect.provideServiceEffect(
         SocketServer.SocketServer,
@@ -158,7 +154,7 @@ export const runServer = (port: number) =>
       Effect.scoped,
       Effect.interruptible,
       Effect.provideService(ServerContext, context),
-      Effect.tapErrorCause((cause) =>
+      Effect.tapCause((cause) =>
         Effect.sync(() =>
           console.log(`[Server] Server error: ${JSON.stringify(cause)}`),
         ),
@@ -173,10 +169,10 @@ export const runServer = (port: number) =>
 /**
  * DevTools service that manages the WebSocket server and clients
  */
-export class DevToolsService extends Effect.Service<DevToolsService>()(
+export class DevToolsService extends Context.Service<DevToolsService>()(
   "effect-tui/DevToolsService",
   {
-    scoped: Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const { activeClient, clients } = yield* ServerContext;
 
       return {
@@ -186,6 +182,9 @@ export class DevToolsService extends Effect.Service<DevToolsService>()(
           Effect.map(SubscriptionRef.get(clients), HashSet.size),
       } as const;
     }),
-    dependencies: [ServerContext.Live],
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(ServerContext.Live),
+  );
+}

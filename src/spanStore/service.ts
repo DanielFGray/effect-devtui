@@ -37,7 +37,7 @@ import {
 // Service Definition
 // =============================================================================
 
-export class SpanStore extends Context.Tag("effect-devtui/SpanStore")<SpanStore, {
+export class SpanStore extends Context.Service<SpanStore, {
   readonly addSpan: (span: SimpleSpan, source: SourceKey) => Effect.Effect<void>
   readonly addSpanEvent: (event: SimpleSpanEvent, spanId: string, source: SourceKey) => Effect.Effect<void>
   readonly updateMetrics: (metrics: ReadonlyArray<SimpleMetric>, source: SourceKey) => Effect.Effect<void>
@@ -48,7 +48,7 @@ export class SpanStore extends Context.Tag("effect-devtui/SpanStore")<SpanStore,
   readonly getStats: () => Effect.Effect<ReadonlyArray<SpanNameStats>>
   readonly snapshot: () => Effect.Effect<SpanStoreState>
   readonly events: PubSub.PubSub<StoreEvent>
-}>() {}
+}>()("effect-devtui/SpanStore") {}
 
 // =============================================================================
 // Helpers

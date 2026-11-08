@@ -19,7 +19,7 @@ import * as Schedule from "effect/Schedule";
 import * as Layer from "effect/Layer";
 import * as Random from "effect/Random";
 import * as Duration from "effect/Duration";
-import { DevTools } from "@effect/experimental";
+import * as DevTools from "effect/devtools/DevTools";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as readline from "node:readline";
 
@@ -180,7 +180,7 @@ const apiRequest = (endpoint: string) =>
 // ============================================================================
 
 const readLine = (prompt: string): Effect.Effect<string> =>
-  Effect.async<string>((resume) => {
+  Effect.callback<string>((resume) => {
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -197,7 +197,7 @@ const readLine = (prompt: string): Effect.Effect<string> =>
 
 const program = Effect.gen(function* () {
   const timerRunning = yield* Ref.make(false);
-  const timerFiber = yield* Ref.make<Fiber.RuntimeFiber<any, any> | null>(null);
+  const timerFiber = yield* Ref.make<Fiber.Fiber<any, any> | null>(null);
 
   console.log("\n=== Interactive Effect Test Client ===");
   console.log("Connected to DevTools at " + DEVTOOLS_URL);
@@ -228,32 +228,26 @@ const program = Effect.gen(function* () {
       break;
     } else if (input === "1") {
       console.log("Running userWorkflow...");
-      yield* Effect.fork(
-        userWorkflow(1).pipe(
-          Effect.tapError((error) =>
-            Effect.log(`userWorkflow failed: ${error}`),
-          ),
-          Effect.ignore,
+      yield* Effect.forkChild(userWorkflow(1).pipe(
+        Effect.tapError((error) =>
+          Effect.log(`userWorkflow failed: ${error}`),
         ),
-      );
+        Effect.ignore,
+      ));
     } else if (input === "2") {
       console.log("Running databaseQuery...");
-      yield* Effect.fork(
-        databaseQuery("SELECT * FROM users").pipe(
-          Effect.tapError((error) =>
-            Effect.log(`databaseQuery failed: ${error}`),
-          ),
-          Effect.ignore,
+      yield* Effect.forkChild(databaseQuery("SELECT * FROM users").pipe(
+        Effect.tapError((error) =>
+          Effect.log(`databaseQuery failed: ${error}`),
         ),
-      );
+        Effect.ignore,
+      ));
     } else if (input === "3") {
       console.log("Running apiRequest...");
-      yield* Effect.fork(
-        apiRequest("/api/v1/data").pipe(
-          Effect.tapError((error) => Effect.log(`apiRequest failed: ${error}`)),
-          Effect.ignore,
-        ),
-      );
+      yield* Effect.forkChild(apiRequest("/api/v1/data").pipe(
+        Effect.tapError((error) => Effect.log(`apiRequest failed: ${error}`)),
+        Effect.ignore,
+      ));
     } else if (input === "t") {
       const running = yield* Ref.get(timerRunning);
       if (running) {
@@ -266,20 +260,18 @@ const program = Effect.gen(function* () {
         console.log("Auto-timer stopped.");
       } else {
         // Start timer
-        const fiber = yield* Effect.fork(
-          Effect.repeat(
-            Effect.gen(function* () {
-              console.log("[Timer] Running userWorkflow...");
-              yield* userWorkflow(1).pipe(
-                Effect.tapError((error) =>
-                  Effect.log(`[Timer] userWorkflow failed: ${error}`),
-                ),
-                Effect.ignore,
-              );
-            }),
-            Schedule.spaced("3 seconds"),
-          ),
-        );
+        const fiber = yield* Effect.forkChild(Effect.repeat(
+          Effect.gen(function* () {
+            console.log("[Timer] Running userWorkflow...");
+            yield* userWorkflow(1).pipe(
+              Effect.tapError((error) =>
+                Effect.log(`[Timer] userWorkflow failed: ${error}`),
+              ),
+              Effect.ignore,
+            );
+          }),
+          Schedule.spaced("3 seconds"),
+        ));
         yield* Ref.set(timerFiber, fiber);
         yield* Ref.set(timerRunning, true);
         console.log("Auto-timer started (runs every 3s).");
@@ -290,7 +282,7 @@ const program = Effect.gen(function* () {
   }
 }).pipe(
   Effect.retry(
-    Schedule.spaced("2 seconds").pipe(Schedule.intersect(Schedule.recurs(5))),
+    Schedule.max([Schedule.spaced("2 seconds"), Schedule.recurs(5)]),
   ),
   Effect.tapError((error) =>
     Effect.log(`Program error: ${error}, retrying connection...`),
@@ -298,7 +290,7 @@ const program = Effect.gen(function* () {
 );
 
 // Setup Effect runtime with DevTools
-const DevToolsLive = DevTools.layer(DEVTOOLS_URL);
+const DevToolsLive = DevTools.layerWebSocket(DEVTOOLS_URL);
 const WebSocketLive = NodeSocket.layerWebSocketConstructor;
 const MainLive = Layer.provide(DevToolsLive, WebSocketLive);
 

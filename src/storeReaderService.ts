@@ -31,10 +31,7 @@ export interface StoreReaderService {
 /**
  * The Context Tag for the StoreReaderService
  */
-export class StoreReader extends Context.Tag("effect-tui/StoreReader")<
-  StoreReader,
-  StoreReaderService
->() {}
+export class StoreReader extends Context.Service<StoreReader, StoreReaderService>()("effect-tui/StoreReader") {}
 
 // =============================================================================
 // Live Implementation

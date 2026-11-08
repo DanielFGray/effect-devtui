@@ -166,7 +166,7 @@ export const createSolidBridge = (
     const subscription = yield* PubSub.subscribe(spanStore.events)
 
     yield* pipe(
-      Stream.fromQueue(subscription),
+      Stream.fromSubscription(subscription),
       Stream.runForEach((event) =>
         SE.$match(event, {
           SpanAdded: ({ source }) =>

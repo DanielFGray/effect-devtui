@@ -221,15 +221,14 @@ export const runLayerAnalysis = (projectPath: string = process.cwd()) =>
       targetLine,
     });
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.gen(function* () {
         const actions = yield* StoreActionsService;
         console.error("[LayerAnalysis] Error:", error);
         yield* actions.setLayerAnalysisError(`Analysis failed: ${error}`);
         yield* actions.setLayerAnalysisStatus("error");
         yield* actions.setLayerAnalysisProgress(null);
-      }),
-    ),
+      })),
   );
 
 /**
@@ -385,7 +384,7 @@ const findTsConfig = (startPath: string) =>
     while (currentPath !== root) {
       const tsconfigPath = path.join(currentPath, "tsconfig.json");
 
-      // Try to access the file, catching errors with Effect.catchAll
+      // Try to access the file, catching errors with Effect.catch
       const result = yield* Effect.tryPromise({
         try: () => fs.access(tsconfigPath).then(() => tsconfigPath),
         catch: () => null,

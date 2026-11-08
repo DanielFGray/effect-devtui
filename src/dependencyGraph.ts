@@ -2,7 +2,7 @@
  * Dependency graph helpers backed by Effect Graph + beautiful-mermaid.
  */
 
-import { Graph } from "effect";
+import { Graph, Option } from "effect";
 import { renderMermaidAscii } from "beautiful-mermaid";
 import type { LayerDefinition } from "./layerResolverCore";
 
@@ -68,7 +68,7 @@ export function detectCycles(layers: LayerDefinition[]): string[][] {
     .filter((component) => component.length > 1)
     .map((component) =>
       component
-        .map((index) => graph.nodes.get(index)?.name)
+        .map((index) => Option.getOrUndefined(Graph.getNode(graph, index))?.name)
         .filter((name): name is string => Boolean(name))
         .sort(),
     );

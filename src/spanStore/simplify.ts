@@ -8,7 +8,7 @@
  */
 
 import * as Option from "effect/Option"
-import type * as Domain from "@effect/experimental/DevTools/Domain"
+import type * as Domain from "effect/devtools/DevToolsSchema"
 import type { SimpleSpan, SimpleSpanEvent, SimpleMetric } from "../storeTypes"
 
 // =============================================================================
@@ -51,7 +51,7 @@ export const simplifySpan = (span: Domain.Span): SimpleSpan => {
 
 export const simplifySpanEvent = (event: Domain.SpanEvent): SimpleSpanEvent => {
   const attrs: Record<string, unknown> = Object.fromEntries(
-    Object.entries(event.attributes).map(([key, value]) => {
+    Object.entries(event.attributes ?? {}).map(([key, value]) => {
       if (
         typeof value === "string" ||
         typeof value === "number" ||
@@ -77,61 +77,44 @@ export const simplifySpanEvent = (event: Domain.SpanEvent): SimpleSpanEvent => {
 // Metric Simplification
 // =============================================================================
 
+/**
+ * Converts a devtools metric into the store shape. `value` is the metric's
+ * headline number; `details` carries the other fields of its state.
+ */
 export const simplifyMetric = (metric: Domain.Metric): SimpleMetric => {
-  const tags: Record<string, string> = Object.fromEntries(
-    metric.tags.map((tag) => [tag.key, tag.value]),
-  )
-
-  const result = (() => {
-    switch (metric._tag) {
-      case "Counter":
-        return {
-          value: Number(metric.state.count) as number | string,
-          details: {} as Record<string, number | string>,
-        }
-      case "Gauge":
-        return {
-          value: Number(metric.state.value) as number | string,
-          details: {} as Record<string, number | string>,
-        }
-      case "Histogram":
-        return {
-          value: Number(metric.state.count) as number | string,
-          details: {
-            count: Number(metric.state.count),
-            sum: Number(metric.state.sum),
-            min: Number(metric.state.min),
-            max: Number(metric.state.max),
-          } as Record<string, number | string>,
-        }
-      case "Frequency":
-        return {
-          value: `${metric.state.occurrences.size} entries` as number | string,
-          details: Object.fromEntries(
-            Object.keys(metric.state.occurrences).map((key) => [
-              String(key),
-              Number(metric.state.occurrences[key]),
-            ]),
-          ) as Record<string, number | string>,
-        }
-      case "Summary":
-        return {
-          value: Number(metric.state.count) as number | string,
-          details: {
-            count: Number(metric.state.count),
-            sum: Number(metric.state.sum),
-            min: Number(metric.state.min),
-            max: Number(metric.state.max),
-          } as Record<string, number | string>,
-        }
-    }
-  })()
-
+  const { value, details } = summarizeMetricState(metric)
   return {
-    name: metric.name,
-    type: metric._tag,
-    value: result.value,
-    tags,
-    details: result.details,
+    name: metric.id,
+    type: metric.type,
+    value,
+    tags: { ...metric.attributes },
+    details,
+  }
+}
+
+const summarizeMetricState = (
+  metric: Domain.Metric,
+): { value: number | string; details: Record<string, number | string> } => {
+  switch (metric.type) {
+    case "Counter":
+      return { value: Number(metric.state.count), details: {} }
+    case "Gauge":
+      return { value: Number(metric.state.value), details: {} }
+    case "Histogram":
+    case "Summary":
+      return {
+        value: Number(metric.state.count),
+        details: {
+          count: Number(metric.state.count),
+          sum: metric.state.sum,
+          min: metric.state.min,
+          max: metric.state.max,
+        },
+      }
+    case "Frequency":
+      return {
+        value: `${metric.state.occurrences.size} entries`,
+        details: Object.fromEntries(metric.state.occurrences),
+      }
   }
 }

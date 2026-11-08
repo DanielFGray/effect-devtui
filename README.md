@@ -43,15 +43,15 @@ npmx effect-devtui
 To use Effect DevTools TUI with your Effect project, first install the required dependency:
 
 ```bash
-npm i @effect/experimental
+npm i effect @effect/platform-node
 npm i -d effect-devtui
 ```
 
 Then add the `DevTools` layer to your Effect application:
 
 ```ts
-import { DevTools } from "@effect/experimental";
-import { NodeRuntime, NodeSocket } from "@effect/platform-node";
+import * as DevTools from "effect/devtools/DevTools";
+import { NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 
 const program = Effect.log("Hello!").pipe(
@@ -60,7 +60,7 @@ const program = Effect.log("Hello!").pipe(
   Effect.forever,
 );
 
-program.pipe(Effect.provide(DevTools.layer()), NodeRuntime.runMain);
+program.pipe(Effect.provide(DevTools.layerWebSocket()), NodeRuntime.runMain);
 ```
 
 ### Custom Server URL

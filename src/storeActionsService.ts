@@ -49,7 +49,7 @@ export interface StoreActionsService {
 /**
  * The Context Tag for the StoreActionsService
  */
-export const StoreActionsService = Context.GenericTag<StoreActionsService>(
+export const StoreActionsService = Context.Service<StoreActionsService>(
   "effect-tui/StoreActionsService",
 );
 

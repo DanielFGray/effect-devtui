@@ -1,13 +1,13 @@
 /**
- * MCP Tool Definitions using @effect/ai
+ * MCP Tool Definitions using effect/ai
  *
  * This module defines all MCP tools for querying Effect DevTools data.
  * Span and metric queries use the SpanStore service (indexed, Effect-native).
  * Client queries use StoreReader (Solid.js store for UI state).
  */
 
-import * as Tool from "@effect/ai/Tool";
-import * as Toolkit from "@effect/ai/Toolkit";
+import * as Tool from "effect/ai/Tool";
+import * as Toolkit from "effect/ai/Toolkit";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as HashMap from "effect/HashMap";
@@ -128,31 +128,31 @@ const buildSpanTree = (spans: ReadonlyArray<SimpleSpan>): ReadonlyArray<SpanNode
 const ListSpansTool = Tool.make("list_spans", {
   description:
     "List Effect spans from connected DevTools clients. Returns spans sorted by start time (newest first). Use filters to narrow results.",
-  parameters: {
+  parameters: Schema.Struct({
     clientId: Schema.optional(
-      Schema.Number.pipe(Schema.int()).annotations({
+      Schema.Int.annotate({
         description: "Filter spans to a specific client ID. Omit to include all clients.",
       }),
     ),
     status: Schema.optional(
-      Schema.Literal("running", "ended", "all").annotations({
+      Schema.Literals(["running", "ended", "all"]).annotate({
         description: "Filter by span status. Default: all",
       }),
     ),
     traceId: Schema.optional(
-      Schema.String.annotations({ description: "Filter by trace ID" }),
+      Schema.String.annotate({ description: "Filter by trace ID" }),
     ),
     namePattern: Schema.optional(
-      Schema.String.annotations({
+      Schema.String.annotate({
         description: "Filter by span name (case-insensitive substring match)",
       }),
     ),
     limit: Schema.optional(
-      Schema.Number.pipe(Schema.int(), Schema.between(1, 500)).annotations({
+      Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 500 })).annotate({
         description: "Maximum spans to return. Default: 100",
       }),
     ),
-  },
+  }),
   success: Schema.Struct({
     spans: Schema.Array(Schema.Unknown),
     total: Schema.Number,
@@ -163,21 +163,21 @@ const ListSpansTool = Tool.make("list_spans", {
 const GetSpanTool = Tool.make("get_span", {
   description:
     "Get detailed information about a specific span by ID, including all events and attributes.",
-  parameters: {
-    spanId: Schema.String.annotations({
+  parameters: Schema.Struct({
+    spanId: Schema.String.annotate({
       description: "The span ID to retrieve",
     }),
     clientId: Schema.optional(
-      Schema.Number.pipe(Schema.int()).annotations({
+      Schema.Int.annotate({
         description: "Limit lookup to a specific client ID.",
       }),
     ),
     includeChildren: Schema.optional(
-      Schema.Boolean.annotations({
+      Schema.Boolean.annotate({
         description: "Include child spans in response. Default: false",
       }),
     ),
-  },
+  }),
   success: Schema.Struct({
     span: Schema.NullOr(Schema.Unknown),
     children: Schema.optional(Schema.Array(Schema.Unknown)),
@@ -188,18 +188,18 @@ const GetSpanTool = Tool.make("get_span", {
 const GetActiveSpansTool = Tool.make("get_active_spans", {
   description:
     "Get currently running (active) spans. Shortcut for list_spans with status='running'.",
-  parameters: {
+  parameters: Schema.Struct({
     clientId: Schema.optional(
-      Schema.Number.pipe(Schema.int()).annotations({
+      Schema.Int.annotate({
         description: "Filter active spans to a specific client ID.",
       }),
     ),
     limit: Schema.optional(
-      Schema.Number.pipe(Schema.int(), Schema.between(1, 100)).annotations({
+      Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 })).annotate({
         description: "Maximum spans to return. Default: 50",
       }),
     ),
-  },
+  }),
   success: Schema.Struct({
     spans: Schema.Array(Schema.Unknown),
     count: Schema.Number,
@@ -208,7 +208,7 @@ const GetActiveSpansTool = Tool.make("get_active_spans", {
 
 const ListClientsTool = Tool.make("list_clients", {
   description: "List Effect applications currently connected to DevTools.",
-  parameters: {},
+  parameters: Schema.Struct({}),
   success: Schema.Struct({
     clients: Schema.Array(
       Schema.Struct({
@@ -224,30 +224,27 @@ const ListClientsTool = Tool.make("list_clients", {
 const GetMetricsTool = Tool.make("get_metrics", {
   description:
     "Get the current metrics snapshot from connected Effect applications.",
-  parameters: {
+  parameters: Schema.Struct({
     clientId: Schema.optional(
-      Schema.Number.pipe(Schema.int()).annotations({
+      Schema.Int.annotate({
         description: "Filter metrics to a specific client ID.",
       }),
     ),
     namePattern: Schema.optional(
-      Schema.String.annotations({
+      Schema.String.annotate({
         description:
           "Filter metrics by name (case-insensitive substring match)",
       }),
     ),
     type: Schema.optional(
-      Schema.Literal(
-        "Counter",
-        "Gauge",
-        "Histogram",
-        "Frequency",
-        "Summary",
-      ).annotations({
+      Schema.Literals(["Counter", "Gauge",
+      "Histogram",
+      "Frequency",
+      "Summary",]).annotate({
         description: "Filter by metric type",
       }),
     ),
-  },
+  }),
   success: Schema.Struct({
     metrics: Schema.Array(Schema.Unknown),
     count: Schema.Number,
@@ -257,16 +254,16 @@ const GetMetricsTool = Tool.make("get_metrics", {
 const GetSpanTreeTool = Tool.make("get_span_tree", {
   description:
     "Get the hierarchical span tree for a trace. Returns spans organized by parent-child relationships.",
-  parameters: {
-    traceId: Schema.String.annotations({
+  parameters: Schema.Struct({
+    traceId: Schema.String.annotate({
       description: "The trace ID to build tree for",
     }),
     clientId: Schema.optional(
-      Schema.Number.pipe(Schema.int()).annotations({
+      Schema.Int.annotate({
         description: "Filter trace tree to a specific client ID.",
       }),
     ),
-  },
+  }),
   success: Schema.Struct({
     traceId: Schema.String,
     rootSpans: Schema.Array(Schema.Unknown),
@@ -278,13 +275,13 @@ const GetSpanTreeTool = Tool.make("get_span_tree", {
 const GetSpanStatsTool = Tool.make("get_span_stats", {
   description:
     "Get aggregated statistics for span names (count, error rate, avg duration).",
-  parameters: {
+  parameters: Schema.Struct({
     namePattern: Schema.optional(
-      Schema.String.annotations({
+      Schema.String.annotate({
         description: "Filter stats by span name (case-insensitive substring match)",
       }),
     ),
-  },
+  }),
   success: Schema.Struct({
     stats: Schema.Array(Schema.Unknown),
     count: Schema.Number,
@@ -294,13 +291,13 @@ const GetSpanStatsTool = Tool.make("get_span_stats", {
 const ListTracesTool = Tool.make("list_traces", {
   description:
     "List traces with summary info (span count, root name, error status).",
-  parameters: {
+  parameters: Schema.Struct({
     limit: Schema.optional(
-      Schema.Number.pipe(Schema.int(), Schema.between(1, 200)).annotations({
+      Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 })).annotate({
         description: "Maximum traces to return. Default: 50",
       }),
     ),
-  },
+  }),
   success: Schema.Struct({
     traces: Schema.Array(Schema.Unknown),
     total: Schema.Number,

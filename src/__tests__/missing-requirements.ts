@@ -13,25 +13,13 @@ import { Effect, Context, Layer } from "effect";
 // SERVICE DEFINITIONS
 // ============================================================================
 
-class DatabaseService extends Context.Tag("DatabaseService")<
-  DatabaseService,
-  { readonly query: (sql: string) => Effect.Effect<unknown[]> }
->() {}
+class DatabaseService extends Context.Service<DatabaseService, { readonly query: (sql: string) => Effect.Effect<unknown[]> }>()("DatabaseService") {}
 
-class LoggingService extends Context.Tag("LoggingService")<
-  LoggingService,
-  { readonly log: (msg: string) => Effect.Effect<void> }
->() {}
+class LoggingService extends Context.Service<LoggingService, { readonly log: (msg: string) => Effect.Effect<void> }>()("LoggingService") {}
 
-class ConfigService extends Context.Tag("ConfigService")<
-  ConfigService,
-  { readonly get: (key: string) => Effect.Effect<string> }
->() {}
+class ConfigService extends Context.Service<ConfigService, { readonly get: (key: string) => Effect.Effect<string> }>()("ConfigService") {}
 
-class CacheService extends Context.Tag("CacheService")<
-  CacheService,
-  { readonly get: (key: string) => Effect.Effect<string | null> }
->() {}
+class CacheService extends Context.Service<CacheService, { readonly get: (key: string) => Effect.Effect<string | null> }>()("CacheService") {}
 
 // ============================================================================
 // LAYER IMPLEMENTATIONS

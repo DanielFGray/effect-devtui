@@ -55,7 +55,7 @@ export const addSpan = (span: SimpleSpan, source: SourceKey) =>
     // Check for buffered events and attach them
     const bKey = bufferKey(source, span.spanId)
     const bufferedEvents = getOrEmpty(state.eventBuffer, bKey)
-    const spanWithEvents: SimpleSpan = Array.isEmptyReadonlyArray(bufferedEvents)
+    const spanWithEvents: SimpleSpan = Array.isReadonlyArrayEmpty(bufferedEvents)
       ? span
       : { ...span, events: [...span.events, ...bufferedEvents] }
 
@@ -66,7 +66,7 @@ export const addSpan = (span: SimpleSpan, source: SourceKey) =>
 
     // Replace existing or append
     const updatedSpans: ReadonlyArray<SimpleSpan> = isUpdate
-      ? Array.replace(currentSpans, existingIndex.value, spanWithEvents)
+      ? currentSpans.map((s, i) => (i === existingIndex.value ? spanWithEvents : s))
       : Array.append(currentSpans, spanWithEvents)
 
     // Rotate if exceeding MAX_SPANS
@@ -104,11 +104,11 @@ export const addSpan = (span: SimpleSpan, source: SourceKey) =>
     // Remove empty trace entries and clean hasErrorByTrace for fully-rotated traces
     const emptyTraceIds = pipe(
       HashMap.toEntries(cleanedIndices.spansByTrace),
-      Array.filter(([, spans]) => Array.isEmptyReadonlyArray(spans)),
+      Array.filter(([, spans]) => Array.isReadonlyArrayEmpty(spans)),
       Array.map(([traceId]) => traceId),
     )
     const cleanedSpansByTrace = HashMap.filter(cleanedIndices.spansByTrace, (spans) =>
-      !Array.isEmptyReadonlyArray(spans),
+      !Array.isReadonlyArrayEmpty(spans),
     )
     const cleanedHasErrorByTrace = Array.reduce(
       emptyTraceIds,
@@ -153,7 +153,7 @@ export const addSpan = (span: SimpleSpan, source: SourceKey) =>
     )
 
     // Remove buffered events if we consumed them
-    const newEventBuffer = Array.isEmptyReadonlyArray(bufferedEvents)
+    const newEventBuffer = Array.isReadonlyArrayEmpty(bufferedEvents)
       ? state.eventBuffer
       : HashMap.remove(state.eventBuffer, bKey)
 
@@ -286,7 +286,7 @@ export const clearSource = (source: SourceKey) =>
   (state: SpanStoreState): readonly [SpanStoreState, ReadonlyArray<StoreEvent>] => {
     const sourceSpans = getOrEmpty(state.spansBySource, source)
 
-    if (Array.isEmptyReadonlyArray(sourceSpans)) {
+    if (Array.isReadonlyArrayEmpty(sourceSpans)) {
       // Nothing to clear for spans; still clear metrics if present
       const hasMetrics = Option.isSome(HashMap.get(state.metricsBySource, source))
       if (!hasMetrics) {
@@ -329,7 +329,7 @@ export const clearSource = (source: SourceKey) =>
         const traceSpans = getOrEmpty(acc.spansByTrace, traceId)
         const remaining = Array.filter(traceSpans, (s) => !spanIdSet.has(s.spanId))
 
-        if (Array.isEmptyReadonlyArray(remaining)) {
+        if (Array.isReadonlyArrayEmpty(remaining)) {
           return {
             spansByTrace: HashMap.remove(acc.spansByTrace, traceId),
             rootByTrace: HashMap.remove(acc.rootByTrace, traceId),
